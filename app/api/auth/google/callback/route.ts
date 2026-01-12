@@ -34,11 +34,32 @@ export async function GET(req: Request) {
   }
 
   // Validate CSRF state
-  const cookieState = (req.headers.get("cookie") ?? "").match(
-    /oauth_state=([^;]+)/,
-  )?.[1];
+  const cookieHeader = req.headers.get("cookie") ?? "";
+  const cookieState = cookieHeader.match(/oauth_state=([^;]+)/)?.[1];
+
+  // Debug logging (check Vercel logs)
+  console.log("OAuth Callback Debug:", {
+    urlState: state,
+    cookieState: cookieState,
+    hasCookieState: !!cookieState,
+    cookieHeaderLength: cookieHeader.length,
+    allCookies: cookieHeader.split(";").map((c) => c.trim().substring(0, 50)),
+  });
+
   if (!state || !cookieState || state !== cookieState) {
-    return NextResponse.json({ error: "Invalid state" }, { status: 400 });
+    return NextResponse.json(
+      {
+        error: "Invalid state",
+        debug: {
+          hasState: !!state,
+          hasCookieState: !!cookieState,
+          statesMatch: state === cookieState,
+          stateFromUrl: state,
+          stateFromCookie: cookieState,
+        },
+      },
+      { status: 400 }
+    );
   }
 
   // Exchange authorization code for access token
@@ -58,7 +79,7 @@ export async function GET(req: Request) {
     const text = await tokenRes.text();
     return NextResponse.json(
       { error: "Token exchange failed", detail: text },
-      { status: 400 },
+      { status: 400 }
     );
   }
 
@@ -69,14 +90,14 @@ export async function GET(req: Request) {
     "https://openidconnect.googleapis.com/v1/userinfo",
     {
       headers: { Authorization: `Bearer ${tokens.access_token}` },
-    },
+    }
   );
 
   if (!userInfoRes.ok) {
     const text = await userInfoRes.text();
     return NextResponse.json(
       { error: "Failed to fetch userinfo", detail: text },
-      { status: 400 },
+      { status: 400 }
     );
   }
 
@@ -85,13 +106,13 @@ export async function GET(req: Request) {
   if (!info.sub) {
     return NextResponse.json(
       { error: "Google userinfo missing sub" },
-      { status: 400 },
+      { status: 400 }
     );
   }
   if (!info.email) {
     return NextResponse.json(
       { error: "Google account has no email" },
-      { status: 400 },
+      { status: 400 }
     );
   }
   const providerAccountId = info.sub;

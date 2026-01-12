@@ -28,7 +28,7 @@ export async function GET(req: Request) {
     name: "oauth_state",
     value: state,
     httpOnly: true,
-    sameSite: "lax",
+    sameSite: "none",
     secure: process.env.NODE_ENV === "production",
     path: "/",
     maxAge: 10 * 60, // 10 minutes age
