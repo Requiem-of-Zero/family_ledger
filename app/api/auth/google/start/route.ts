@@ -29,7 +29,7 @@ export async function GET(req: Request) {
     value: state,
     httpOnly: true,
     sameSite: "none",
-    secure: process.env.NODE_ENV === "production",
+    secure: true,
     path: "/",
     maxAge: 10 * 60, // 10 minutes age
   });
