@@ -15,9 +15,9 @@ export async function GET(req: Request) {
   url.searchParams.set("redirect_uri", process.env.GOOGLE_OAUTH_REDIRECT_URI!);
   url.searchParams.set("response_type", "code");
 
-  url.searchParams.set("scope", "openid email profile") // OIDC scope for basic identity (email+profile)
+  url.searchParams.set("scope", "openid email profile"); // OIDC scope for basic identity (email+profile)
 
-  url.searchParams.set("access_type", "online") // Set the access type to online for the initialized google user
+  url.searchParams.set("access_type", "online"); // Set the access type to online for the initialized google user
 
   url.searchParams.set("state", state); // Set the state as the randomly generated token
 
@@ -29,9 +29,10 @@ export async function GET(req: Request) {
     value: state,
     httpOnly: true,
     sameSite: "lax",
+    secure: process.env.NODE_ENV === "production",
     path: "/",
-    maxAge: 10 * 60 // 10 minutes age
-  })
+    maxAge: 10 * 60, // 10 minutes age
+  });
 
-  return res
+  return res;
 }
