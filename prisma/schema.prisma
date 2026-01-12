@@ -1,0 +1,149 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
+// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+
+generator client {
+  provider = "prisma-client-js"
+  output   = "../app/generated/prisma"
+  engineType = "library"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum UserRole {
+  USER
+  ADMIN
+  STAFF
+}
+
+enum FamilyMemberRole {
+  OWNER
+  MEMBER
+}
+
+enum OAuthProvders {
+  GOOGLE
+}
+
+enum TransactionType {
+  EXPENSE
+  INCOME
+}
+
+enum CategoryType {
+  EXPENSE
+  INCOME
+}
+
+model User {
+  id Int @id @default(autoincrement())
+  email String @unique
+  username String
+  passwordHash String
+  role UserRole @default(USER)
+  isActive Boolean @default(true)
+  lastLogin DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  sessions Session[]
+  createdFamilies Family[] @relation("FamilyCreatedBy")
+  oauthAccounts OAuthAccount[]
+  transactions Transaction[]
+  familyMembers FamilyMember[]
+  deletedAt DateTime?
+}
+
+model OAuthAccount {
+  id Int @id @default(autoincrement())
+  userId Int
+  provider OAuthProvders
+  providerAccountId String
+  email String
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+  @@index([userId])
+}
+
+model Session {
+  id Int @id @default(autoincrement())
+  userId Int
+  tokenHash String @unique
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  revokedAt DateTime?
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model Family {
+  id Int @id @default(autoincrement())
+  name String
+  createdBy Int
+  transactions Transaction[]
+  transactionCategories TransactionCategory[]
+  createdAt DateTime @default(now())
+  deletedAt DateTime?
+  
+  creator User @relation(fields: [createdBy], references: [id], "FamilyCreatedBy")
+  members FamilyMember[]
+}
+
+model FamilyMember {
+  id Int @id @default(autoincrement())
+  familyId Int
+  userId Int 
+  memberRole FamilyMemberRole @default(MEMBER)
+  joinedAt DateTime @default(now())
+  leftAt DateTime?
+  isActive Boolean @default(true)
+
+  family Family @relation(fields: [familyId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([familyId, userId])
+  @@index([familyId])
+}
+
+model Transaction {
+  id Int @id @default(autoincrement())
+  familyId Int?
+  categoryId Int?
+  createdByUserId Int
+  amountCents Int
+  type TransactionType
+  merchant String?
+  note String?
+  occurredAt DateTime @default(now())
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  deletedAt DateTime?
+
+  family Family? @relation(fields: [familyId], references: [id], onDelete: SetNull)
+  createdBy User @relation(fields: [createdByUserId], references: [id])
+  category TransactionCategory? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+
+  @@index([familyId, occurredAt, createdByUserId, categoryId])
+}
+
+model TransactionCategory {
+  id Int @id @default(autoincrement())
+  familyId Int
+  name String
+  type CategoryType @default(EXPENSE)
+  isArchived Boolean @default(false)
+  createdAt DateTime @default(now())
+  transactions Transaction[]
+
+  family Family @relation(fields: [familyId], references: [id])
+
+  @@index([familyId])
+  @@unique([familyId, name]) // Prevents duplicate category names per family
+}
