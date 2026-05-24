@@ -34,13 +34,19 @@ export default function NavBar() {
   const [me, setMe] = useState<MeUser | null>(null);
   const [isLoadingMe, setIsLoadingMe] = useState(true);
 
-  // Fetch current user on mount
+  // Fetch current user on mount and after route changes
   useEffect(() => {
+    let isCurrent = true;
+
     async function fetchMe() {
+      setIsLoadingMe(true);
+
       try {
         const res = await fetch("/api/auth/me", {
           credentials: "include",
         });
+
+        if (!isCurrent) return;
 
         if (res.ok) {
           const body = await res.json();
@@ -49,15 +55,21 @@ export default function NavBar() {
           setMe(null);
         }
       } catch (error) {
+        if (!isCurrent) return;
+
         console.error("Failed to fetch user:", error);
         setMe(null);
       } finally {
-        setIsLoadingMe(false);
+        if (isCurrent) setIsLoadingMe(false);
       }
     }
 
     fetchMe();
-  }, []);
+
+    return () => {
+      isCurrent = false;
+    };
+  }, [pathname]);
 
   async function handleLogout() {
     setIsLoggingOut(true);
@@ -71,6 +83,8 @@ export default function NavBar() {
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
         console.error("Logout failed:", body);
+      } else {
+        setMe(null);
       }
     } finally {
       setIsLoggingOut(false);
@@ -124,14 +138,16 @@ export default function NavBar() {
           )}
 
           {/* Logout */}
-          <button
-            type="button"
-            onClick={handleLogout}
-            disabled={isLoggingOut}
-            className="rounded-xl border border-border bg-raised-bg px-3 py-2 text-sm font-semibold text-primary-text hover:border-border-hover disabled:opacity-70"
-          >
-            {isLoggingOut ? "Logging out…" : "Logout"}
-          </button>
+          {!isLoadingMe && me && (
+            <button
+              type="button"
+              onClick={handleLogout}
+              disabled={isLoggingOut}
+              className="rounded-xl border border-border bg-raised-bg px-3 py-2 text-sm font-semibold text-primary-text hover:border-border-hover disabled:opacity-70"
+            >
+              {isLoggingOut ? "Logging out…" : "Logout"}
+            </button>
+          )}
         </nav>
       </div>
     </header>
