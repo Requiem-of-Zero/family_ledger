@@ -1,36 +1,110 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Family Ledger
+
+A Next.js app for tracking family income and expenses.
+
+## Prerequisites
+
+- Node.js
+- npm
+- PostgreSQL
+
+This repo currently uses npm as its package manager. The committed lockfile is `package-lock.json`, so prefer `npm ci` for a clean install.
 
 ## Getting Started
 
-First, run the development server:
+1. Create a local PostgreSQL database.
+
+   ```bash
+   createdb family_ledger
+   ```
+
+2. Create a `.env` file in the project root.
+
+   ```bash
+   DATABASE_URL="postgresql://USER:PASSWORD@localhost:5432/family_ledger"
+   APP_URL="http://localhost:3000"
+   NEXT_PUBLIC_APP_URL="http://localhost:3000"
+   ```
+
+   Replace `USER` and `PASSWORD` with your local PostgreSQL credentials. If your local database does not require a password, use the connection URL format that matches your setup.
+
+   Google OAuth is optional for basic local startup. If you are testing Google sign-in, also add:
+
+   ```bash
+   GOOGLE_CLIENT_ID="..."
+   GOOGLE_CLIENT_SECRET="..."
+   GOOGLE_OAUTH_REDIRECT_URI="http://localhost:3000/api/auth/google/callback"
+   ```
+
+3. Install dependencies.
+
+   ```bash
+   npm ci
+   ```
+
+   Prisma runs during `postinstall`, so `DATABASE_URL` must exist before installing dependencies.
+
+4. Create the database tables.
+
+   ```bash
+   npx prisma db push
+   ```
+
+5. Optional: seed local demo data.
+
+   ```bash
+   npx prisma db seed
+   ```
+
+   This creates a test user:
+
+   ```text
+   email: test@example.com
+   password: password123
+   ```
+
+6. Start the dev server.
+
+   ```bash
+   npm run dev
+   ```
+
+   Open [http://localhost:3000](http://localhost:3000).
+
+## Troubleshooting
+
+### `next: command not found`
+
+This means project dependencies are not installed, so `node_modules/.bin/next` does not exist yet.
+
+Run:
 
 ```bash
+npm ci
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+### `Cannot resolve environment variable: DATABASE_URL`
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+Prisma loads `DATABASE_URL` during dependency installation because `postinstall` runs `prisma generate`.
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+Create `.env` first, then rerun:
 
-## Learn More
+```bash
+npm ci
+```
 
-To learn more about Next.js, take a look at the following resources:
+### Using Yarn
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+`yarn dev` works only after dependencies have been installed. However, this repo has `package-lock.json`, not `yarn.lock`, so npm is the recommended path.
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+If you intentionally switch to Yarn, use it consistently and commit the resulting `yarn.lock`.
 
-## Deploy on Vercel
+## Common Commands
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+```bash
+npm run dev       # start the Next.js dev server
+npm run build     # generate Prisma client and build the app
+npm run lint      # run ESLint
+npm test          # run Vitest
+```
