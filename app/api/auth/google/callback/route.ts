@@ -118,19 +118,20 @@ export async function GET(req: Request) {
   const providerAccountId = info.sub;
   const email = info.email;
   const displayName = info.name ?? email.split("@")[0];
+  const now = new Date();
 
   // Create/link user + OAuthAccount, then issue your session
   const sessionToken = generateSessionToken();
   const tokenHash = hashSessionToken(sessionToken);
   const expiresAt = getSessionExpiryDate();
 
-  const user = await prisma.$transaction(async (tx) => {
+  await prisma.$transaction(async (tx) => {
     // 1) If OAuthAccount exists, use its user
     const existingOAuth = await tx.oAuthAccount.findUnique({
       where: {
         provider_providerAccountId: {
           provider: "GOOGLE",
-          providerAccountId: info.sub,
+          providerAccountId,
         },
       },
       include: { user: true },
@@ -140,6 +141,10 @@ export async function GET(req: Request) {
       // Create app session for existing user
       await tx.session.create({
         data: { userId: existingOAuth.user.id, tokenHash, expiresAt },
+      });
+      await tx.user.update({
+        where: { id: existingOAuth.user.id },
+        data: { lastLogin: now },
       });
       return existingOAuth.user;
     }
@@ -154,6 +159,7 @@ export async function GET(req: Request) {
           email,
           username: info.name ?? displayName,
           passwordHash: "OAUTH", // placeholder since you're not using password for this user
+          lastLogin: now,
           // role defaults to USER in your schema
         },
       });
@@ -182,6 +188,11 @@ export async function GET(req: Request) {
     // 5) Create your session
     await tx.session.create({
       data: { userId: dbUser.id, tokenHash, expiresAt },
+    });
+
+    await tx.user.update({
+      where: { id: dbUser.id },
+      data: { lastLogin: now },
     });
 
     return dbUser;
