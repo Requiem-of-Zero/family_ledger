@@ -53,11 +53,14 @@ export async function register(input: RegisterInput): Promise<AuthResult> {
   const expiresAt = getSessionExpiryDate();
 
   const created = await prisma.$transaction(async (tx) => {
+    const now = new Date();
+
     const user = await tx.user.create({
       data: {
         email: data.email,
         username: data.username,
         passwordHash,
+        lastLogin: now,
       },
     });
 
@@ -104,6 +107,8 @@ export async function login(input: LoginInput): Promise<AuthResult> {
 
   const user = await prisma.user.findUnique({ where: { email: data.email } });
   if (!user) throw new HttpError("No user found. Try a different login.", 401);
+
+  if (user.deletedAt) throw new HttpError("No user found. Try a different login.", 401);
 
   if (!user.isActive) throw new HttpError("Account disabled", 403);
 
