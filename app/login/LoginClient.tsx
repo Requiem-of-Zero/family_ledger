@@ -4,6 +4,10 @@ import React, { useState } from "react"; // Import useState for managing compone
 
 type Mode = "login" | "register";
 
+const DEMO_EMAIL = "test@example.com";
+const DEMO_PASSWORD = "password123";
+const showDemoLogin = process.env.NODE_ENV !== "production";
+
 export default function LoginClient() {
   const router = useRouter(); // Create a router instance to navigate after successful authentication
 
@@ -14,19 +18,11 @@ export default function LoginClient() {
   const [error, setError] = useState<string | null>(null); // Store error message to display to client if login fails
   const [mode, setMode] = useState<Mode>("login");
 
-  async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
-    e.preventDefault(); // Prevent the browser from doing normal HTML form submission
-
+  async function authenticate(endpoint: string, body: object) {
     setError(null); // Clear prior errors before attempting again.
     setIsSubmitting(true); // Turn on loading state for button
 
-    const endpoint =
-      mode === "login" ? "/api/auth/login" : "/api/auth/register";
-
-    const body =
-      mode === "login" ? { email, password } : { email, password, username };
-
-    // Call your existing login endpoint
+    // Call your existing auth endpoint
     const authRes = await fetch(endpoint, {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -46,6 +42,28 @@ export default function LoginClient() {
     router.push("/transactions");
     router.refresh(); // Refresh so server components are able to see the new cookie
     setIsSubmitting(false);
+  }
+
+  async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault(); // Prevent the browser from doing normal HTML form submission
+
+    const endpoint =
+      mode === "login" ? "/api/auth/login" : "/api/auth/register";
+
+    const body =
+      mode === "login" ? { email, password } : { email, password, username };
+
+    await authenticate(endpoint, body);
+  }
+
+  async function handleDemoLogin() {
+    setMode("login");
+    setEmail(DEMO_EMAIL);
+    setPassword(DEMO_PASSWORD);
+    await authenticate("/api/auth/login", {
+      email: DEMO_EMAIL,
+      password: DEMO_PASSWORD,
+    });
   }
 
   return (
@@ -96,6 +114,16 @@ export default function LoginClient() {
         >
           Continue with Google
         </a>
+        {showDemoLogin && (
+          <button
+            type="button"
+            onClick={handleDemoLogin}
+            disabled={isSubmitting}
+            className="mt-3 w-full rounded-xl border border-border bg-raised-bg px-4 py-2 text-sm font-semibold text-primary-text hover:border-border-hover disabled:cursor-not-allowed disabled:opacity-70"
+          >
+            Use demo account
+          </button>
+        )}
         {/* Divider */}
         <div className="my-6 flex items-center gap-3">
           <div className="h-px flex-1 bg-border" />
