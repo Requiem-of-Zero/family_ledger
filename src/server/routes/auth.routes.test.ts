@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { prisma } from "../db/prisma";
 
 // Import the Next route handlers we *will* implement next.
@@ -7,8 +7,9 @@ import { POST as registerPOST } from "@/app/api/auth/register/route";
 import { POST as loginPOST } from "@/app/api/auth/login/route";
 import { GET as meGET } from "@/app/api/auth/me/route";
 import { POST as logoutPOST } from "@/app/api/auth/logout/route";
+import { GET as googleCallbackGET } from "@/app/api/auth/google/callback/route";
 import { SESSION_COOKIE_NAME } from "../auth/constants";
-import { generateSessionToken, hashSessionToken } from "../auth/session";
+import { hashSessionToken } from "../auth/session";
 
 function getSetCookie(res: Response): string {
   const cookie = res.headers.get("set-cookie");
@@ -28,9 +29,16 @@ function extractCookieValue(setCookie: string, cookieName: string): string {
 beforeEach(async () => {
   // Clean DB between tests (order matters because foreign keys)
   await prisma.session.deleteMany();
+  await prisma.oAuthAccount.deleteMany();
+  await prisma.transaction.deleteMany();
+  await prisma.transactionCategory.deleteMany();
   await prisma.familyMember.deleteMany();
   await prisma.family.deleteMany();
   await prisma.user.deleteMany();
+});
+
+afterEach(() => {
+  vi.unstubAllGlobals();
 });
 
 describe("auth routes", () => {
@@ -200,5 +208,64 @@ describe("auth routes", () => {
     const after = await prisma.session.findFirst({where: {tokenHash}});
     expect(after).not.toBeNull();
     expect(after!.revokedAt).not.toBeNull()
+  });
+
+  it("GET /api/auth/google/callback creates OAuth user and updates lastLogin", async () => {
+    process.env.APP_URL = "http://localhost:3000";
+    process.env.GOOGLE_CLIENT_ID = "test-google-client-id";
+    process.env.GOOGLE_CLIENT_SECRET = "test-google-client-secret";
+    process.env.GOOGLE_OAUTH_REDIRECT_URI =
+      "http://localhost:3000/api/auth/google/callback";
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: string | URL | Request) => {
+        const url = input instanceof Request ? input.url : input.toString();
+
+        if (url === "https://oauth2.googleapis.com/token") {
+          return Response.json({
+            access_token: "test-access-token",
+            expires_in: 3600,
+            token_type: "Bearer",
+          });
+        }
+
+        if (url === "https://openidconnect.googleapis.com/v1/userinfo") {
+          return Response.json({
+            sub: "google-account-123",
+            email: "google@example.com",
+            email_verified: true,
+            name: "Google User",
+          });
+        }
+
+        return Response.json({ error: "Unexpected fetch" }, { status: 500 });
+      }),
+    );
+
+    const beforeCallback = new Date();
+    const req = new Request(
+      "http://localhost/api/auth/google/callback?code=test-code&state=test-state",
+      {
+        method: "GET",
+        headers: {
+          cookie: "oauth_state=test-state",
+        },
+      },
+    );
+
+    const res = await googleCallbackGET(req);
+
+    expect(res.status).toBe(307);
+    expect(getSetCookie(res)).toContain(`${SESSION_COOKIE_NAME}=`);
+
+    const user = await prisma.user.findUniqueOrThrow({
+      where: { email: "google@example.com" },
+    });
+
+    expect(user.lastLogin).toBeInstanceOf(Date);
+    expect(user.lastLogin!.getTime()).toBeGreaterThanOrEqual(
+      beforeCallback.getTime(),
+    );
   });
 });
