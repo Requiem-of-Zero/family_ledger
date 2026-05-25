@@ -4,6 +4,7 @@ import {
   plaidCountryCodes,
   plaidProducts,
 } from "@/src/server/plaid/client";
+import { listPlaidAccountsForUser } from "@/src/server/services/plaid-accounts.service";
 import { getDefaultFamilyIdForUser } from "@/src/server/services/transactions.service";
 import type { Transaction as PlaidTransaction } from "plaid";
 
@@ -106,27 +107,8 @@ export async function exchangePublicTokenForUser(
   };
 }
 
-export async function listPlaidAccountsForUser(userId: number) {
-  return prisma.plaidAccount.findMany({
-    where: {
-      item: { userId },
-    },
-    select: {
-      id: true,
-      name: true,
-      mask: true,
-      type: true,
-      subtype: true,
-      item: {
-        select: {
-          id: true,
-          institutionName: true,
-        },
-      },
-    },
-    orderBy: [{ item: { institutionName: "asc" } }, { name: "asc" }],
-  });
-}
+export { listPlaidAccountsForUser };
+
 
 export async function disconnectPlaidItemForUser(
   userId: number,
