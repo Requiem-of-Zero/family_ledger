@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { getCurrentUserFromRequest } from "@/src/server/auth/currentUser";
-import { listPlaidAccountsForUser } from "@/src/server/services/plaid.service";
+import { listPlaidAccountsForUser } from "@/src/server/services/plaid-accounts.service";
 
 export async function GET(req: Request) {
   const user = await getCurrentUserFromRequest(req);
@@ -13,7 +13,7 @@ export async function GET(req: Request) {
     const accounts = await listPlaidAccountsForUser(user.id);
 
     return NextResponse.json({ accounts }, { status: 200 });
-  } catch (error) {
+  } catch (error: unknown) {
     console.error("PLAID accounts list error:", error);
     return NextResponse.json(
       { error: "Failed to load Plaid accounts" },
