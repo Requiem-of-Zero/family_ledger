@@ -106,6 +106,28 @@ export async function exchangePublicTokenForUser(
   };
 }
 
+export async function listPlaidAccountsForUser(userId: number) {
+  return prisma.plaidAccount.findMany({
+    where: {
+      item: { userId },
+    },
+    select: {
+      id: true,
+      name: true,
+      mask: true,
+      type: true,
+      subtype: true,
+      item: {
+        select: {
+          id: true,
+          institutionName: true,
+        },
+      },
+    },
+    orderBy: [{ item: { institutionName: "asc" } }, { name: "asc" }],
+  });
+}
+
 function mapPlaidAmountToLedgerType(amount: number) {
   // Plaid Transactions uses positive amounts for money leaving the account
   // and negative amounts for money entering the account.
