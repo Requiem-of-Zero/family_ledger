@@ -10,7 +10,19 @@ type PlaidLinkMetadata = {
   } | null;
 };
 
-export default function PlaidLinkButton() {
+type Props = {
+  label?: string;
+  connectingLabel?: string;
+  className?: string;
+  onConnected?: () => void;
+};
+
+export default function PlaidLinkButton({
+  label = "Connect bank",
+  connectingLabel = "Connecting...",
+  className = "rounded-xl border border-border bg-raised-bg px-3 py-2 text-sm font-semibold text-primary-text hover:border-border-hover disabled:opacity-70",
+  onConnected,
+}: Props) {
   const [linkToken, setLinkToken] = useState<string | null>(null);
   const [isConnecting, setIsConnecting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -35,13 +47,27 @@ export default function PlaidLinkButton() {
           const body = await res.json().catch(() => ({}));
           throw new Error(body?.error ?? "Failed to connect bank");
         }
+
+        // After the bank is stored, immediately sync transactions so the
+        // transactions page can show data without a manual curl/request.
+        const syncRes = await fetch("/api/plaid/transactions/sync", {
+          method: "POST",
+          credentials: "include",
+        });
+
+        if (!syncRes.ok) {
+          const body = await syncRes.json().catch(() => ({}));
+          throw new Error(body?.error ?? "Connected bank, but sync failed");
+        }
+
+        onConnected?.();
       } catch (err) {
         setError(err instanceof Error ? err.message : "Failed to connect bank");
       } finally {
         setIsConnecting(false);
       }
     },
-    [],
+    [onConnected],
   );
 
   const { open, ready } = usePlaidLink({
@@ -90,9 +116,9 @@ export default function PlaidLinkButton() {
         type="button"
         onClick={handleConnectBank}
         disabled={isConnecting}
-        className="rounded-xl border border-border bg-raised-bg px-3 py-2 text-sm font-semibold text-primary-text hover:border-border-hover disabled:opacity-70"
+        className={className}
       >
-        {isConnecting ? "Connecting..." : "Connect bank"}
+        {isConnecting ? connectingLabel : label}
       </button>
       {error && (
         <div className="absolute right-0 top-full z-50 mt-2 w-64 rounded-xl border border-danger bg-danger-bg px-3 py-2 text-xs text-danger-text shadow-card">
