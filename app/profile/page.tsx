@@ -8,6 +8,7 @@ import ConnectedBankList from "./ConnectedBankList";
 import FriendRequestManager from "./FriendRequestManager";
 import ProfileBankConnect from "./ProfileBankConnect";
 import ProfileLogoutButton from "./ProfileLogoutButton";
+import ProfilePhotoUploader from "./ProfilePhotoUploader";
 
 export default async function ProfilePage() {
   // Server pages do not receive the browser Request object directly, so we
@@ -224,7 +225,7 @@ export default async function ProfilePage() {
       <section className="mb-8 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <div className="flex items-center gap-4">
-            <ProfileAvatar
+            <ProfilePhotoUploader
               imageUrl={user.profileImageUrl}
               username={user.username}
               email={user.email}
@@ -417,47 +418,6 @@ function InfoItem({ label, value }: { label: string; value: string }) {
       <dd className="mt-1 font-medium text-primary-text">{value}</dd>
     </div>
   );
-}
-
-function ProfileAvatar({
-  imageUrl,
-  username,
-  email,
-}: {
-  imageUrl: string | null;
-  username: string;
-  email: string;
-}) {
-  const initials = getInitials(username || email);
-
-  return (
-    <div className="grid h-16 w-16 shrink-0 place-items-center overflow-hidden rounded-full border border-border bg-raised-bg text-lg font-semibold text-primary-text">
-      {imageUrl ? (
-        // Google profile photos are remote URLs, so a plain img avoids needing
-        // to keep Next image remotePatterns in sync with provider domains.
-        <img
-          src={imageUrl}
-          alt={`${username}'s profile photo`}
-          className="h-full w-full object-cover"
-          referrerPolicy="no-referrer"
-        />
-      ) : (
-        initials
-      )}
-    </div>
-  );
-}
-
-function getInitials(value: string) {
-  const parts = value
-    .replaceAll("@", " ")
-    .split(/\s+/)
-    .filter(Boolean);
-
-  return parts
-    .slice(0, 2)
-    .map((part) => part[0]?.toUpperCase() ?? "")
-    .join("");
 }
 
 function formatAccountType(type: string | null, subtype: string | null) {
