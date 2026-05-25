@@ -21,22 +21,26 @@ datasource db {
 // =============================================================================
 
 model User {
-  id              Int            @id @default(autoincrement())
-  email           String         @unique
-  username        String
-  passwordHash    String
-  role            UserRole       @default(USER)
-  isActive        Boolean        @default(true)
-  lastLogin       DateTime?      @db.Timestamptz(3)
-  createdAt       DateTime       @default(now()) @db.Timestamptz(3)
-  updatedAt       DateTime       @updatedAt @db.Timestamptz(3)
-  deletedAt       DateTime?      @db.Timestamptz(3)
-  createdFamilies Family[]       @relation("FamilyCreatedBy")
-  familyMembers   FamilyMember[]
-  oauthAccounts   OAuthAccount[]
-  plaidItems      PlaidItem[]
-  sessions        Session[]
-  transactions    Transaction[]
+  id                 Int                 @id @default(autoincrement())
+  email              String              @unique
+  username           String
+  passwordHash       String
+  role               UserRole            @default(USER)
+  isActive           Boolean             @default(true)
+  lastLogin          DateTime?           @db.Timestamptz(3)
+  createdAt          DateTime            @default(now()) @db.Timestamptz(3)
+  updatedAt          DateTime            @updatedAt @db.Timestamptz(3)
+  deletedAt          DateTime?           @db.Timestamptz(3)
+  createdFamilies    Family[]            @relation("FamilyCreatedBy")
+  familyMembers      FamilyMember[]
+  oauthAccounts      OAuthAccount[]
+  plaidItems         PlaidItem[]
+  sessions           Session[]
+  transactions       Transaction[]
+  sentFriendRequests     UserFriend[]        @relation("UserFriendRequester")
+  receivedFriendRequests UserFriend[]        @relation("UserFriendAddressee")
+  friendGroups           FriendGroup[]
+  friendGroupMembers     FriendGroupMember[]
 }
 
 model OAuthAccount {
@@ -79,6 +83,8 @@ model Family {
   members               FamilyMember[]
   transactions          Transaction[]
   transactionCategories TransactionCategory[]
+  sentFamilyFriendRequests     FamilyFriend[] @relation("FamilyFriendRequester")
+  receivedFamilyFriendRequests FamilyFriend[] @relation("FamilyFriendAddressee")
 }
 
 model FamilyMember {
@@ -99,11 +105,60 @@ model FamilyMember {
 // =============================================================================
 // SOCIAL GRAPH AND FRIEND GROUPS
 // =============================================================================
-// Add the next models here:
-// - UserFriend
-// - FamilyFriend
-// - FriendGroup
-// - FriendGroupMember
+model UserFriend {
+  id          Int          @id @default(autoincrement())
+  requesterId Int
+  addresseeId Int
+  status      FriendStatus @default(PENDING)
+  createdAt   DateTime     @default(now()) @db.Timestamptz(3)
+  acceptedAt  DateTime?    @db.Timestamptz(3)
+
+  requester User @relation("UserFriendRequester", fields: [requesterId], references: [id], onDelete: Cascade)
+  addressee User @relation("UserFriendAddressee", fields: [addresseeId], references: [id], onDelete: Cascade)
+
+  @@unique([requesterId, addresseeId])
+  @@index([addresseeId])
+}
+
+model FamilyFriend {
+  id                Int          @id @default(autoincrement())
+  requesterFamilyId Int
+  addresseeFamilyId Int
+  status            FriendStatus @default(PENDING)
+  createdAt         DateTime     @default(now()) @db.Timestamptz(3)
+  acceptedAt        DateTime?    @db.Timestamptz(3)
+
+  requesterFamily Family @relation("FamilyFriendRequester", fields: [requesterFamilyId], references: [id], onDelete: Cascade)
+  addresseeFamily Family @relation("FamilyFriendAddressee", fields: [addresseeFamilyId], references: [id], onDelete: Cascade)
+
+  @@unique([requesterFamilyId, addresseeFamilyId])
+  @@index([addresseeFamilyId])
+}
+
+model FriendGroup {
+  id        Int      @id @default(autoincrement())
+  ownerId   Int
+  name      String
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+
+  owner   User                @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  members FriendGroupMember[]
+
+  @@index([ownerId])
+}
+
+model FriendGroupMember {
+  id            Int      @id @default(autoincrement())
+  friendGroupId Int
+  userId        Int
+  addedAt       DateTime @default(now()) @db.Timestamptz(3)
+
+  friendGroup FriendGroup @relation(fields: [friendGroupId], references: [id], onDelete: Cascade)
+  user        User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([friendGroupId, userId])
+  @@index([userId])
+}
 
 // =============================================================================
 // BANKING CONNECTIONS
@@ -208,4 +263,10 @@ enum TransactionType {
 enum CategoryType {
   EXPENSE
   INCOME
+}
+
+enum FriendStatus {
+  PENDING
+  ACCEPTED
+  BLOCKED
 }
