@@ -4,6 +4,8 @@ import {
   plaidCountryCodes,
   plaidProducts,
 } from "@/src/server/plaid/client";
+import { getDefaultFamilyIdForUser } from "@/src/server/services/transactions.service";
+import type { Transaction as PlaidTransaction } from "plaid";
 
 type PlaidExchangeMetadata = {
   institution?: {
@@ -101,5 +103,143 @@ export async function exchangePublicTokenForUser(
   return {
     itemId,
     accountsStored: accountsResponse.data.accounts.length,
+  };
+}
+
+function mapPlaidAmountToLedgerType(amount: number) {
+  // Plaid Transactions uses positive amounts for money leaving the account
+  // and negative amounts for money entering the account.
+  return amount < 0 ? "INCOME" : "EXPENSE";
+}
+
+function mapPlaidAmountToCents(amount: number) {
+  return Math.round(Math.abs(amount) * 100);
+}
+
+function mapPlaidDateToDate(date: string) {
+  // Plaid dates are calendar dates like "2026-05-24". Store them at noon UTC
+  // to avoid timezone conversion shifting the ledger day backward/forward.
+  return new Date(`${date}T12:00:00.000Z`);
+}
+
+async function upsertPlaidTransaction(
+  userId: number,
+  familyId: number | null,
+  plaidAccountId: number,
+  transaction: PlaidTransaction,
+) {
+  const type = mapPlaidAmountToLedgerType(transaction.amount);
+  const amountCents = mapPlaidAmountToCents(transaction.amount);
+
+  await prisma.transaction.upsert({
+    where: { plaidTransactionId: transaction.transaction_id },
+    update: {
+      amountCents,
+      type,
+      merchant: transaction.merchant_name ?? transaction.name,
+      note: transaction.name,
+      occurredAt: mapPlaidDateToDate(transaction.date),
+      familyId,
+      plaidAccountId,
+      createdByUserId: userId,
+      deletedAt: null,
+    },
+    create: {
+      createdByUserId: userId,
+      familyId,
+      plaidAccountId,
+      plaidTransactionId: transaction.transaction_id,
+      amountCents,
+      type,
+      merchant: transaction.merchant_name ?? transaction.name,
+      note: transaction.name,
+      occurredAt: mapPlaidDateToDate(transaction.date),
+    },
+  });
+}
+
+export async function syncPlaidTransactionsForUser(userId: number) {
+  const defaultFamilyId = await getDefaultFamilyIdForUser(userId);
+
+  const items = await prisma.plaidItem.findMany({
+    where: { userId },
+    include: { accounts: true },
+  });
+
+  let addedCount = 0;
+  let modifiedCount = 0;
+  let removedCount = 0;
+
+  for (const item of items) {
+    let cursor = item.transactionsCursor ?? undefined;
+    let hasMore = true;
+    let nextCursor = cursor;
+
+    while (hasMore) {
+      // /transactions/sync returns added, modified, and removed changes since
+      // the last cursor. On first sync, cursor is empty and Plaid returns history.
+      const response = await plaidClient.transactionsSync({
+        access_token: item.accessToken,
+        cursor,
+        count: 100,
+      });
+
+      const accountByPlaidId = new Map(
+        item.accounts.map((account) => [account.accountId, account.id]),
+      );
+
+      for (const transaction of response.data.added) {
+        const plaidAccountId = accountByPlaidId.get(transaction.account_id);
+        if (!plaidAccountId) continue;
+
+        await upsertPlaidTransaction(
+          userId,
+          defaultFamilyId,
+          plaidAccountId,
+          transaction,
+        );
+        addedCount += 1;
+      }
+
+      for (const transaction of response.data.modified) {
+        const plaidAccountId = accountByPlaidId.get(transaction.account_id);
+        if (!plaidAccountId) continue;
+
+        await upsertPlaidTransaction(
+          userId,
+          defaultFamilyId,
+          plaidAccountId,
+          transaction,
+        );
+        modifiedCount += 1;
+      }
+
+      for (const removed of response.data.removed) {
+        await prisma.transaction.updateMany({
+          where: {
+            createdByUserId: userId,
+            plaidTransactionId: removed.transaction_id,
+          },
+          data: { deletedAt: new Date() },
+        });
+        removedCount += 1;
+      }
+
+      cursor = response.data.next_cursor;
+      nextCursor = response.data.next_cursor;
+      hasMore = response.data.has_more;
+    }
+
+    await prisma.plaidItem.update({
+      where: { id: item.id },
+      data: { transactionsCursor: nextCursor },
+    });
+  }
+
+  return {
+    itemsSynced: items.length,
+    addedCount,
+    modifiedCount,
+    removedCount,
   };
 }
