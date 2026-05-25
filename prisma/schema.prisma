@@ -1,9 +1,3 @@
-// This is your Prisma schema file,
-// learn more about it in the docs: https://pris.ly/d/prisma-schema
-
-// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
-// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
-
 generator client {
   provider   = "prisma-client-js"
   output     = "../app/generated/prisma"
@@ -12,6 +6,145 @@ generator client {
 
 datasource db {
   provider = "postgresql"
+}
+
+model User {
+  id              Int            @id @default(autoincrement())
+  email           String         @unique
+  username        String
+  passwordHash    String
+  role            UserRole       @default(USER)
+  isActive        Boolean        @default(true)
+  lastLogin       DateTime?      @db.Timestamptz(3)
+  createdAt       DateTime       @default(now()) @db.Timestamptz(3)
+  updatedAt       DateTime       @updatedAt @db.Timestamptz(3)
+  deletedAt       DateTime?      @db.Timestamptz(3)
+  createdFamilies Family[]       @relation("FamilyCreatedBy")
+  familyMembers   FamilyMember[]
+  oauthAccounts   OAuthAccount[]
+  plaidItems      PlaidItem[]
+  sessions        Session[]
+  transactions    Transaction[]
+}
+
+model OAuthAccount {
+  id                Int           @id @default(autoincrement())
+  userId            Int
+  providerAccountId String
+  email             String
+  createdAt         DateTime      @default(now()) @db.Timestamptz(3)
+  provider          OAuthProvders
+  user              User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+  @@index([userId])
+}
+
+model PlaidItem {
+  id                 Int            @id @default(autoincrement())
+  userId             Int
+  itemId             String         @unique
+  accessToken        String
+  transactionsCursor String?
+  institutionId      String?
+  institutionName    String?
+  createdAt          DateTime       @default(now()) @db.Timestamptz(3)
+  updatedAt          DateTime       @updatedAt @db.Timestamptz(3)
+  accounts           PlaidAccount[]
+  user               User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model PlaidAccount {
+  id           Int           @id @default(autoincrement())
+  plaidItemId  Int
+  accountId    String        @unique
+  name         String
+  officialName String?
+  mask         String?
+  type         String?
+  subtype      String?
+  item         PlaidItem     @relation(fields: [plaidItemId], references: [id], onDelete: Cascade)
+  transactions Transaction[]
+
+  @@index([plaidItemId])
+}
+
+model Session {
+  id        Int       @id @default(autoincrement())
+  userId    Int
+  tokenHash String    @unique
+  expiresAt DateTime  @db.Timestamptz(3)
+  createdAt DateTime  @default(now()) @db.Timestamptz(3)
+  revokedAt DateTime? @db.Timestamptz(3)
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model Family {
+  id                    Int                   @id @default(autoincrement())
+  name                  String
+  createdBy             Int
+  createdAt             DateTime              @default(now()) @db.Timestamptz(3)
+  deletedAt             DateTime?             @db.Timestamptz(3)
+  creator               User                  @relation("FamilyCreatedBy", fields: [createdBy], references: [id])
+  members               FamilyMember[]
+  transactions          Transaction[]
+  transactionCategories TransactionCategory[]
+}
+
+model FamilyMember {
+  id         Int              @id @default(autoincrement())
+  familyId   Int
+  userId     Int
+  memberRole FamilyMemberRole @default(MEMBER)
+  joinedAt   DateTime         @default(now()) @db.Timestamptz(3)
+  isActive   Boolean          @default(true)
+  leftAt     DateTime?        @db.Timestamptz(3)
+  family     Family           @relation(fields: [familyId], references: [id], onDelete: Cascade)
+  user       User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([familyId, userId])
+  @@index([familyId])
+}
+
+model Transaction {
+  id                 Int                  @id @default(autoincrement())
+  familyId           Int?
+  categoryId         Int?
+  createdByUserId    Int
+  amountCents        Int
+  type               TransactionType
+  merchant           String?
+  note               String?
+  occurredAt         DateTime             @default(now()) @db.Timestamptz(3)
+  createdAt          DateTime             @default(now()) @db.Timestamptz(3)
+  updatedAt          DateTime             @updatedAt @db.Timestamptz(3)
+  deletedAt          DateTime?            @db.Timestamptz(3)
+  plaidAccountId     Int?
+  plaidTransactionId String?              @unique
+  category           TransactionCategory? @relation(fields: [categoryId], references: [id])
+  createdBy          User                 @relation(fields: [createdByUserId], references: [id])
+  family             Family?              @relation(fields: [familyId], references: [id])
+  plaidAccount       PlaidAccount?        @relation(fields: [plaidAccountId], references: [id])
+
+  @@index([familyId, occurredAt, createdByUserId, categoryId])
+}
+
+model TransactionCategory {
+  id           Int           @id @default(autoincrement())
+  familyId     Int
+  name         String
+  type         CategoryType  @default(EXPENSE)
+  isArchived   Boolean       @default(false)
+  createdAt    DateTime      @default(now()) @db.Timestamptz(3)
+  transactions Transaction[]
+  family       Family        @relation(fields: [familyId], references: [id])
+
+  @@unique([familyId, name])
+  @@index([familyId])
 }
 
 enum UserRole {
@@ -37,150 +170,4 @@ enum TransactionType {
 enum CategoryType {
   EXPENSE
   INCOME
-}
-
-model User {
-  id              Int            @id @default(autoincrement())
-  email           String         @unique
-  username        String
-  passwordHash    String
-  role            UserRole       @default(USER)
-  isActive        Boolean        @default(true)
-  lastLogin       DateTime?      @db.Timestamptz(3)
-  createdAt       DateTime       @default(now()) @db.Timestamptz(3)
-  updatedAt       DateTime       @updatedAt @db.Timestamptz(3)
-  sessions        Session[]
-  createdFamilies Family[]       @relation("FamilyCreatedBy")
-  oauthAccounts   OAuthAccount[]
-  plaidItems      PlaidItem[]
-  transactions    Transaction[]
-  familyMembers   FamilyMember[]
-  deletedAt       DateTime?      @db.Timestamptz(3)
-}
-
-model OAuthAccount {
-  id                Int           @id @default(autoincrement())
-  userId            Int
-  provider          OAuthProvders
-  providerAccountId String
-  email             String
-  createdAt         DateTime      @default(now()) @db.Timestamptz(3)
-
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@unique([provider, providerAccountId])
-  @@index([userId])
-}
-
-model PlaidItem {
-  id              Int      @id @default(autoincrement())
-  userId          Int
-  itemId          String   @unique
-  accessToken     String
-  transactionsCursor String?
-  institutionId   String?
-  institutionName String?
-  createdAt       DateTime @default(now()) @db.Timestamptz(3)
-  updatedAt       DateTime @updatedAt @db.Timestamptz(3)
-
-  user     User           @relation(fields: [userId], references: [id], onDelete: Cascade)
-  accounts PlaidAccount[]
-
-  @@index([userId])
-}
-
-model PlaidAccount {
-  id           Int     @id @default(autoincrement())
-  plaidItemId  Int
-  accountId    String  @unique
-  name         String
-  officialName String?
-  mask         String?
-  type         String?
-  subtype      String?
-
-  item         PlaidItem     @relation(fields: [plaidItemId], references: [id], onDelete: Cascade)
-  transactions Transaction[]
-
-  @@index([plaidItemId])
-}
-
-model Session {
-  id        Int       @id @default(autoincrement())
-  userId    Int
-  tokenHash String    @unique
-  expiresAt DateTime  @db.Timestamptz(3)
-  createdAt DateTime  @default(now()) @db.Timestamptz(3)
-  revokedAt DateTime? @db.Timestamptz(3)
-  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@index([userId])
-}
-
-model Family {
-  id                    Int                   @id @default(autoincrement())
-  name                  String
-  createdBy             Int
-  transactions          Transaction[]
-  transactionCategories TransactionCategory[]
-  createdAt             DateTime              @default(now()) @db.Timestamptz(3)
-  deletedAt             DateTime?             @db.Timestamptz(3)
-
-  creator User           @relation(fields: [createdBy], references: [id], "FamilyCreatedBy")
-  members FamilyMember[]
-}
-
-model FamilyMember {
-  id         Int              @id @default(autoincrement())
-  familyId   Int
-  userId     Int
-  memberRole FamilyMemberRole @default(MEMBER)
-  joinedAt   DateTime         @default(now()) @db.Timestamptz(3)
-  leftAt     DateTime?        @db.Timestamptz(3)
-  isActive   Boolean          @default(true)
-
-  family Family @relation(fields: [familyId], references: [id], onDelete: Cascade)
-  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@unique([familyId, userId])
-  @@index([familyId])
-}
-
-model Transaction {
-  id                 Int             @id @default(autoincrement())
-  familyId           Int?
-  categoryId         Int?
-  createdByUserId    Int
-  plaidAccountId     Int?
-  plaidTransactionId String?         @unique
-  amountCents        Int
-  type               TransactionType
-  merchant           String?
-  note               String?
-  occurredAt         DateTime        @default(now()) @db.Timestamptz(3)
-  createdAt          DateTime        @default(now()) @db.Timestamptz(3)
-  updatedAt          DateTime        @updatedAt @db.Timestamptz(3)
-  deletedAt          DateTime?       @db.Timestamptz(3)
-
-  family       Family?              @relation(fields: [familyId], references: [id], onDelete: SetNull)
-  createdBy    User                 @relation(fields: [createdByUserId], references: [id])
-  category     TransactionCategory? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
-  plaidAccount PlaidAccount?        @relation(fields: [plaidAccountId], references: [id], onDelete: SetNull)
-
-  @@index([familyId, occurredAt, createdByUserId, categoryId])
-}
-
-model TransactionCategory {
-  id           Int           @id @default(autoincrement())
-  familyId     Int
-  name         String
-  type         CategoryType  @default(EXPENSE)
-  isArchived   Boolean       @default(false)
-  createdAt    DateTime      @default(now()) @db.Timestamptz(3)
-  transactions Transaction[]
-
-  family Family @relation(fields: [familyId], references: [id])
-
-  @@unique([familyId, name]) // Prevents duplicate category names per family
-  @@index([familyId])
 }
