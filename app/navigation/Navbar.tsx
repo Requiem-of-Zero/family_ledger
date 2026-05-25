@@ -27,6 +27,7 @@ type MeUser = {
   id: number;
   email: string;
   username: string;
+  profileImageUrl: string | null;
 };
 
 type FriendNotification = {
@@ -261,16 +262,81 @@ export default function NavBar() {
             </div>
           )}
 
-          {!isLoadingMe && me && (
-            <Link href="/profile" className="rounded-xl border border-border bg-raised-bg px-3 py-2 text-sm hover:border-border-hover">
-              <span className="font-semibold text-primary-text">
-                {me.username || me.email.split("@")[0]}
-              </span>
-            </Link>
-          )}
+          {!isLoadingMe && me && <ProfileBubble user={me} />}
 
         </nav>
       </div>
     </header>
   );
+}
+
+function ProfileBubble({ user }: { user: MeUser }) {
+  const displayName = user.username || user.email.split("@")[0];
+
+  return (
+    <div className="group relative">
+      <Link
+        href="/profile"
+        aria-label="Open profile"
+        title={displayName}
+        className="grid h-10 w-10 place-items-center overflow-hidden rounded-full border border-border bg-raised-bg text-sm font-semibold text-primary-text transition hover:border-border-hover"
+      >
+        {user.profileImageUrl ? (
+          <img
+            src={user.profileImageUrl}
+            alt=""
+            className="h-full w-full object-cover"
+            referrerPolicy="no-referrer"
+          />
+        ) : (
+          getInitials(displayName)
+        )}
+      </Link>
+
+      <div className="absolute right-0 top-full z-50 hidden w-64 pt-2 group-hover:block group-focus-within:block">
+        <div className="rounded-xl border border-border bg-surface-bg p-3 text-sm shadow-lg">
+          <div className="flex items-center gap-3">
+            <div className="grid h-11 w-11 shrink-0 place-items-center overflow-hidden rounded-full border border-border bg-raised-bg text-sm font-semibold text-primary-text">
+              {user.profileImageUrl ? (
+                <img
+                  src={user.profileImageUrl}
+                  alt=""
+                  className="h-full w-full object-cover"
+                  referrerPolicy="no-referrer"
+                />
+              ) : (
+                getInitials(displayName)
+              )}
+            </div>
+            <div className="min-w-0">
+              <div className="truncate font-semibold text-primary-text">
+                {displayName}
+              </div>
+              <div className="truncate text-xs text-muted-text">
+                {user.email}
+              </div>
+            </div>
+          </div>
+          <Link
+            href="/profile"
+            className="mt-3 block rounded-lg border border-border bg-raised-bg px-3 py-2 text-xs font-semibold text-primary-text hover:border-border-hover"
+          >
+            View profile
+          </Link>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function getInitials(value: string) {
+  const parts = value
+    .replaceAll("@", " ")
+    .split(/\s+/)
+    .filter(Boolean);
+
+  return parts
+    .slice(0, 2)
+    .map((part) => part[0]?.toUpperCase() ?? "")
+    .join("");
 }

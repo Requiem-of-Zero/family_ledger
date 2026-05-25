@@ -13,6 +13,7 @@ export async function GET(req: Request) {
         id: user.id,
         email: user.email,
         username: user.username,
+        profileImageUrl: user.profileImageUrl,
         role: user.role,
       },
     },

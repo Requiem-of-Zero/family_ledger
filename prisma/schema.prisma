@@ -24,6 +24,7 @@ model User {
   id                 Int                 @id @default(autoincrement())
   email              String              @unique
   username           String
+  profileImageUrl    String?
   passwordHash       String
   role               UserRole            @default(USER)
   isActive           Boolean             @default(true)

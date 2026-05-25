@@ -27,6 +27,7 @@ export default async function ProfilePage() {
       id: true,
       email: true,
       username: true,
+      profileImageUrl: true,
       role: true,
       isActive: true,
       lastLogin: true,
@@ -222,10 +223,19 @@ export default async function ProfilePage() {
     <main className="mx-auto w-full max-w-3xl px-4 py-8">
       <section className="mb-8 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div>
-          <p className="text-sm font-semibold text-primary">Profile</p>
-          <h1 className="mt-2 text-3xl font-semibold text-primary-text">
-            {user.username}
-          </h1>
+          <div className="flex items-center gap-4">
+            <ProfileAvatar
+              imageUrl={user.profileImageUrl}
+              username={user.username}
+              email={user.email}
+            />
+            <div>
+              <p className="text-sm font-semibold text-primary">Profile</p>
+              <h1 className="mt-2 text-3xl font-semibold text-primary-text">
+                {user.username}
+              </h1>
+            </div>
+          </div>
           <p className="mt-2 text-sm text-muted-text">
             Manage account details, family membership, friends, and connected
             banks.
@@ -407,6 +417,47 @@ function InfoItem({ label, value }: { label: string; value: string }) {
       <dd className="mt-1 font-medium text-primary-text">{value}</dd>
     </div>
   );
+}
+
+function ProfileAvatar({
+  imageUrl,
+  username,
+  email,
+}: {
+  imageUrl: string | null;
+  username: string;
+  email: string;
+}) {
+  const initials = getInitials(username || email);
+
+  return (
+    <div className="grid h-16 w-16 shrink-0 place-items-center overflow-hidden rounded-full border border-border bg-raised-bg text-lg font-semibold text-primary-text">
+      {imageUrl ? (
+        // Google profile photos are remote URLs, so a plain img avoids needing
+        // to keep Next image remotePatterns in sync with provider domains.
+        <img
+          src={imageUrl}
+          alt={`${username}'s profile photo`}
+          className="h-full w-full object-cover"
+          referrerPolicy="no-referrer"
+        />
+      ) : (
+        initials
+      )}
+    </div>
+  );
+}
+
+function getInitials(value: string) {
+  const parts = value
+    .replaceAll("@", " ")
+    .split(/\s+/)
+    .filter(Boolean);
+
+  return parts
+    .slice(0, 2)
+    .map((part) => part[0]?.toUpperCase() ?? "")
+    .join("");
 }
 
 function formatAccountType(type: string | null, subtype: string | null) {

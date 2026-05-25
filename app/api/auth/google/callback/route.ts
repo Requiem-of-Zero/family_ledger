@@ -144,7 +144,7 @@ export async function GET(req: Request) {
       });
       await tx.user.update({
         where: { id: existingOAuth.user.id },
-        data: { lastLogin: now },
+        data: { lastLogin: now, profileImageUrl: info.picture ?? undefined },
       });
       return existingOAuth.user;
     }
@@ -158,6 +158,7 @@ export async function GET(req: Request) {
         data: {
           email,
           username: info.name ?? displayName,
+          profileImageUrl: info.picture,
           passwordHash: "OAUTH", // placeholder since you're not using password for this user
           lastLogin: now,
           // role defaults to USER in your schema
@@ -192,7 +193,7 @@ export async function GET(req: Request) {
 
     await tx.user.update({
       where: { id: dbUser.id },
-      data: { lastLogin: now },
+      data: { lastLogin: now, profileImageUrl: info.picture ?? undefined },
     });
 
     return dbUser;
