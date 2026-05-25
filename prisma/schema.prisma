@@ -52,6 +52,7 @@ model User {
   sessions        Session[]
   createdFamilies Family[]       @relation("FamilyCreatedBy")
   oauthAccounts   OAuthAccount[]
+  plaidItems      PlaidItem[]
   transactions    Transaction[]
   familyMembers   FamilyMember[]
   deletedAt       DateTime?      @db.Timestamptz(3)
@@ -69,6 +70,38 @@ model OAuthAccount {
 
   @@unique([provider, providerAccountId])
   @@index([userId])
+}
+
+model PlaidItem {
+  id              Int      @id @default(autoincrement())
+  userId          Int
+  itemId          String   @unique
+  accessToken     String
+  institutionId   String?
+  institutionName String?
+  createdAt       DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt       DateTime @updatedAt @db.Timestamptz(3)
+
+  user     User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  accounts PlaidAccount[]
+
+  @@index([userId])
+}
+
+model PlaidAccount {
+  id           Int     @id @default(autoincrement())
+  plaidItemId  Int
+  accountId    String  @unique
+  name         String
+  officialName String?
+  mask         String?
+  type         String?
+  subtype      String?
+
+  item         PlaidItem     @relation(fields: [plaidItemId], references: [id], onDelete: Cascade)
+  transactions Transaction[]
+
+  @@index([plaidItemId])
 }
 
 model Session {
@@ -113,22 +146,25 @@ model FamilyMember {
 }
 
 model Transaction {
-  id              Int             @id @default(autoincrement())
-  familyId        Int?
-  categoryId      Int?
-  createdByUserId Int
-  amountCents     Int
-  type            TransactionType
-  merchant        String?
-  note            String?
-  occurredAt      DateTime        @default(now()) @db.Timestamptz(3)
-  createdAt       DateTime        @default(now()) @db.Timestamptz(3)
-  updatedAt       DateTime        @updatedAt @db.Timestamptz(3)
-  deletedAt       DateTime?       @db.Timestamptz(3)
+  id                 Int             @id @default(autoincrement())
+  familyId           Int?
+  categoryId         Int?
+  createdByUserId    Int
+  plaidAccountId     Int?
+  plaidTransactionId String?         @unique
+  amountCents        Int
+  type               TransactionType
+  merchant           String?
+  note               String?
+  occurredAt         DateTime        @default(now()) @db.Timestamptz(3)
+  createdAt          DateTime        @default(now()) @db.Timestamptz(3)
+  updatedAt          DateTime        @updatedAt @db.Timestamptz(3)
+  deletedAt          DateTime?       @db.Timestamptz(3)
 
-  family    Family?              @relation(fields: [familyId], references: [id], onDelete: SetNull)
-  createdBy User                 @relation(fields: [createdByUserId], references: [id])
-  category  TransactionCategory? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  family       Family?              @relation(fields: [familyId], references: [id], onDelete: SetNull)
+  createdBy    User                 @relation(fields: [createdByUserId], references: [id])
+  category     TransactionCategory? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  plaidAccount PlaidAccount?        @relation(fields: [plaidAccountId], references: [id], onDelete: SetNull)
 
   @@index([familyId, occurredAt, createdByUserId, categoryId])
 }
