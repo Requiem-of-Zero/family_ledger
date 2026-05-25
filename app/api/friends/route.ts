@@ -11,6 +11,7 @@ const SendFriendRequestSchema = z.object({
   addresseeEmail: z.string().trim().email().toLowerCase(),
 });
 
+// Collection route: list all relationships involving the current user.
 export async function GET(req: Request) {
   try {
     const user = await getCurrentUserFromRequest(req);
@@ -35,6 +36,7 @@ export async function GET(req: Request) {
   }
 }
 
+// Collection route: create a new pending friend request by addressee email.
 export async function POST(req: Request) {
   try {
     const user = await getCurrentUserFromRequest(req);
