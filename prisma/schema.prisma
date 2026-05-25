@@ -1,3 +1,11 @@
+// FAMILY LEDGER SCHEMA
+// Keep new models grouped by domain so the relationship graph stays readable.
+// Add friendship and group models under SOCIAL GRAPH AND FRIEND GROUPS.
+
+// =============================================================================
+// PRISMA CONFIGURATION
+// =============================================================================
+
 generator client {
   provider   = "prisma-client-js"
   output     = "../app/generated/prisma"
@@ -7,6 +15,10 @@ generator client {
 datasource db {
   provider = "postgresql"
 }
+
+// =============================================================================
+// IDENTITY AND AUTHENTICATION
+// =============================================================================
 
 model User {
   id              Int            @id @default(autoincrement())
@@ -40,6 +52,63 @@ model OAuthAccount {
   @@index([userId])
 }
 
+model Session {
+  id        Int       @id @default(autoincrement())
+  userId    Int
+  tokenHash String    @unique
+  expiresAt DateTime  @db.Timestamptz(3)
+  createdAt DateTime  @default(now()) @db.Timestamptz(3)
+  revokedAt DateTime? @db.Timestamptz(3)
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+// =============================================================================
+// FAMILIES AND HOUSEHOLD MEMBERSHIP
+// =============================================================================
+// FamilyMember is the join table between Family and User.
+
+model Family {
+  id                    Int                   @id @default(autoincrement())
+  name                  String
+  createdBy             Int
+  createdAt             DateTime              @default(now()) @db.Timestamptz(3)
+  deletedAt             DateTime?             @db.Timestamptz(3)
+  creator               User                  @relation("FamilyCreatedBy", fields: [createdBy], references: [id])
+  members               FamilyMember[]
+  transactions          Transaction[]
+  transactionCategories TransactionCategory[]
+}
+
+model FamilyMember {
+  id         Int              @id @default(autoincrement())
+  familyId   Int
+  userId     Int
+  memberRole FamilyMemberRole @default(MEMBER)
+  joinedAt   DateTime         @default(now()) @db.Timestamptz(3)
+  isActive   Boolean          @default(true)
+  leftAt     DateTime?        @db.Timestamptz(3)
+  family     Family           @relation(fields: [familyId], references: [id], onDelete: Cascade)
+  user       User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([familyId, userId])
+  @@index([familyId])
+}
+
+// =============================================================================
+// SOCIAL GRAPH AND FRIEND GROUPS
+// =============================================================================
+// Add the next models here:
+// - UserFriend
+// - FamilyFriend
+// - FriendGroup
+// - FriendGroupMember
+
+// =============================================================================
+// BANKING CONNECTIONS
+// =============================================================================
+
 model PlaidItem {
   id                 Int            @id @default(autoincrement())
   userId             Int
@@ -71,44 +140,9 @@ model PlaidAccount {
   @@index([plaidItemId])
 }
 
-model Session {
-  id        Int       @id @default(autoincrement())
-  userId    Int
-  tokenHash String    @unique
-  expiresAt DateTime  @db.Timestamptz(3)
-  createdAt DateTime  @default(now()) @db.Timestamptz(3)
-  revokedAt DateTime? @db.Timestamptz(3)
-  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@index([userId])
-}
-
-model Family {
-  id                    Int                   @id @default(autoincrement())
-  name                  String
-  createdBy             Int
-  createdAt             DateTime              @default(now()) @db.Timestamptz(3)
-  deletedAt             DateTime?             @db.Timestamptz(3)
-  creator               User                  @relation("FamilyCreatedBy", fields: [createdBy], references: [id])
-  members               FamilyMember[]
-  transactions          Transaction[]
-  transactionCategories TransactionCategory[]
-}
-
-model FamilyMember {
-  id         Int              @id @default(autoincrement())
-  familyId   Int
-  userId     Int
-  memberRole FamilyMemberRole @default(MEMBER)
-  joinedAt   DateTime         @default(now()) @db.Timestamptz(3)
-  isActive   Boolean          @default(true)
-  leftAt     DateTime?        @db.Timestamptz(3)
-  family     Family           @relation(fields: [familyId], references: [id], onDelete: Cascade)
-  user       User             @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@unique([familyId, userId])
-  @@index([familyId])
-}
+// =============================================================================
+// LEDGER TRANSACTIONS AND CATEGORIES
+// =============================================================================
 
 model Transaction {
   id                 Int                  @id @default(autoincrement())
@@ -146,6 +180,10 @@ model TransactionCategory {
   @@unique([familyId, name])
   @@index([familyId])
 }
+
+// =============================================================================
+// SHARED ENUMS
+// =============================================================================
 
 enum UserRole {
   USER
