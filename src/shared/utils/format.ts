@@ -14,5 +14,5 @@ export function formatMoney(amountCents: number, currency: string) {
  * Format ISO date string or Date into readable date
  */
 export function formatDate(d: Date) {
-  return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+  return d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
 }
