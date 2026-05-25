@@ -16,6 +16,13 @@ export default function TransactionRow({
   onEdit,
   onDelete,
 }: Props) {
+  const isIncome = tx.type === "INCOME";
+  const amountClass = isIncome ? "text-emerald-400" : "text-red-400";
+  const typeChipClass = isIncome
+    ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-300"
+    : "border-red-500/40 bg-red-500/10 text-red-300";
+  const amountPrefix = isIncome ? "+" : "-";
+
   return (
     <div className="flex items-start justify-between gap-3">
       <div className="min-w-0">
@@ -25,7 +32,12 @@ export default function TransactionRow({
             {tx.merchant ?? "(No merchant)"}
           </span>
 
-          <span className="rounded-lg border border-border bg-raised-bg px-2 py-0.5 text-xs text-muted-text">
+          <span
+            className={[
+              "rounded-lg border px-2 py-0.5 text-xs font-semibold",
+              typeChipClass,
+            ].join(" ")}
+          >
             {tx.type}
           </span>
         </div>
@@ -41,11 +53,20 @@ export default function TransactionRow({
             </>
           )}
         </div>
+
+        {tx.plaidAccount && (
+          <div className="mt-2 text-xs text-muted-text">
+            {tx.plaidAccount.item.institutionName ?? "Connected bank"} ·{" "}
+            {tx.plaidAccount.name}
+            {tx.plaidAccount.mask ? ` •••• ${tx.plaidAccount.mask}` : ""}
+          </div>
+        )}
       </div>
 
       {/* Right side: amount + actions */}
       <div className="shrink-0 text-right">
-        <div className="font-semibold">
+        <div className={["font-semibold", amountClass].join(" ")}>
+          {amountPrefix}
           {formatMoney(tx.amountCents, currency)}
         </div>
 
