@@ -5,6 +5,37 @@ import type {
   TransactionId,
   UpdateTransactionInput,
 } from "@/src/shared/validators/transactions";
+import { HttpError } from "@/src/server/services/auth.service";
+
+async function ensureUserCanUseFamily(userId: number, familyId: number) {
+  const membership = await prisma.familyMember.findFirst({
+    where: {
+      userId,
+      familyId,
+      isActive: true,
+      family: { deletedAt: null },
+    },
+    select: { id: true },
+  });
+
+  if (!membership) {
+    throw new HttpError("Family not found", 404);
+  }
+}
+
+async function ensureCategoryBelongsToFamily(
+  categoryId: number,
+  familyId: number | null,
+) {
+  const category = await prisma.transactionCategory.findUnique({
+    where: { id: categoryId },
+    select: { familyId: true },
+  });
+
+  if (!category || category.familyId !== familyId) {
+    throw new HttpError("Category not found for this family", 404);
+  }
+}
 
 export async function getDefaultFamilyIdForUser(userId: number) {
   // New users are created as OWNER of their first family. Prefer that family,
@@ -44,6 +75,14 @@ export async function createTransactionForUser(
 ) {
   const familyId = input.familyId ?? (await getDefaultFamilyIdForUser(userId));
 
+  if (familyId) {
+    await ensureUserCanUseFamily(userId, familyId);
+  }
+
+  if (input.categoryId) {
+    await ensureCategoryBelongsToFamily(input.categoryId, familyId);
+  }
+
   const transaction = await prisma.transaction.create({
     data: {
       createdByUserId: userId,
@@ -65,12 +104,34 @@ export async function listTransactionsForUser(
 ) {
   const { from, to, familyId } = query;
 
+  if (familyId !== undefined) {
+    await ensureUserCanUseFamily(userId, familyId);
+  }
+
+  const activeFamilyIds =
+    familyId !== undefined
+      ? [familyId]
+      : await prisma.familyMember
+          .findMany({
+            where: {
+              userId,
+              isActive: true,
+              family: { deletedAt: null },
+            },
+            select: { familyId: true },
+          })
+          .then((memberships) =>
+            memberships.map((membership) => membership.familyId),
+          );
+
   return prisma.transaction.findMany({
     where: {
       type: query.type,
       deletedAt: null,
-      createdByUserId: userId,
-      ...(familyId !== undefined ? { familyId } : {}),
+      OR: [
+        { createdByUserId: userId, familyId: null },
+        { familyId: { in: activeFamilyIds } },
+      ],
       ...(from || to
         ? {
             occurredAt: {
@@ -108,8 +169,20 @@ export async function getTransactionForUserById(
   return prisma.transaction.findFirst({
     where: {
       deletedAt: null,
-      createdByUserId: userId,
       id: transactionId,
+      OR: [
+        { createdByUserId: userId, familyId: null },
+        {
+          family: {
+            members: {
+              some: {
+                userId,
+                isActive: true,
+              },
+            },
+          },
+        },
+      ],
     },
   });
 }
