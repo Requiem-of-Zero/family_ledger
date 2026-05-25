@@ -184,9 +184,10 @@ export default function FriendRequestManager({
 
       <div className="mt-4">
         <RelationshipPanel
-          title="Accepted friends"
+          title="Friends"
           emptyText="No accepted friends yet."
           items={acceptedFriends}
+          alignActionsRight
           renderActions={(item) => (
             <>
               <ActionButton
@@ -235,11 +236,13 @@ function RelationshipPanel({
   emptyText,
   items,
   renderActions,
+  alignActionsRight = false,
 }: {
   title: string;
   emptyText: string;
   items: FriendRelationship[];
   renderActions: (item: FriendRelationship) => ReactNode;
+  alignActionsRight?: boolean;
 }) {
   return (
     <div className="rounded-xl border border-border bg-raised-bg p-4">
@@ -248,24 +251,46 @@ function RelationshipPanel({
         {items.length === 0 ? (
           <div className="text-sm text-muted-text">{emptyText}</div>
         ) : (
-          items.map((item) => (
-            <div
-              key={item.id}
-              className="rounded-xl border border-border bg-surface-bg px-3 py-3"
-            >
-              <div className="font-medium text-primary-text">{item.title}</div>
-              <div className="mt-0.5 text-sm text-muted-text">
-                {item.subtitle}
+          items.map((item) =>
+            alignActionsRight ? (
+              <div
+                key={item.id}
+                className="flex flex-col gap-3 rounded-xl border border-border bg-surface-bg px-3 py-3 sm:flex-row sm:items-start sm:justify-between"
+              >
+                <div className="min-w-0">
+                  <RelationshipDetails item={item} />
+                </div>
+                <div className="flex shrink-0 flex-wrap gap-2 sm:justify-end">
+                  {renderActions(item)}
+                </div>
               </div>
-              <div className="mt-1 text-xs text-muted-text">{item.meta}</div>
-              <div className="mt-3 flex flex-wrap gap-2">
-                {renderActions(item)}
+            ) : (
+              <div
+                key={item.id}
+                className="rounded-xl border border-border bg-surface-bg px-3 py-3"
+              >
+                <RelationshipDetails item={item} />
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {renderActions(item)}
+                </div>
               </div>
-            </div>
-          ))
+            ),
+          )
         )}
       </div>
     </div>
+  );
+}
+
+function RelationshipDetails({ item }: { item: FriendRelationship }) {
+  return (
+    <>
+      <div className="font-medium text-primary-text">{item.title}</div>
+      <div className="mt-0.5 break-words text-sm text-muted-text">
+        {item.subtitle}
+      </div>
+      <div className="mt-1 text-xs text-muted-text">{item.meta}</div>
+    </>
   );
 }
 
