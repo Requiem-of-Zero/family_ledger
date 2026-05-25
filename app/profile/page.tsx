@@ -4,6 +4,8 @@ import { getCurrentUserFromRequest } from "@/src/server/auth/currentUser";
 import { prisma } from "@/src/server/db/prisma";
 import { createAuthRequest } from "@/src/shared/utils/api";
 import { formatDate } from "@/src/shared/utils/format";
+import ConnectedBankList from "./ConnectedBankList";
+import ProfileBankConnect from "./ProfileBankConnect";
 
 export default async function ProfilePage() {
   // Server pages do not receive the browser Request object directly, so we
@@ -72,6 +74,18 @@ export default async function ProfilePage() {
     (count, item) => count + item.accounts.length,
     0,
   );
+  const connectedBanks = user.plaidItems.map((item) => ({
+    id: item.id,
+    institutionName: item.institutionName ?? "Connected institution",
+    connectedAtLabel: formatDate(item.createdAt),
+    accounts: item.accounts.map((account) => ({
+      id: account.id,
+      name: account.name,
+      officialName: account.officialName,
+      mask: account.mask,
+      typeLabel: formatAccountType(account.type, account.subtype),
+    })),
+  }));
 
   return (
     <main className="mx-auto w-full max-w-3xl px-4 py-8">
@@ -143,60 +157,25 @@ export default async function ProfilePage() {
 
         {/* Plaid institutions and their accounts */}
         <div className="rounded-xl border border-border bg-surface-bg p-5">
-          <h2 className="text-lg font-semibold text-primary-text">
-            Connected banks
-          </h2>
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <h2 className="text-lg font-semibold text-primary-text">
+                Connected banks
+              </h2>
+              <p className="mt-1 text-sm text-muted-text">
+                Add accounts here, then review synced transactions on the
+                transactions page.
+              </p>
+            </div>
+          </div>
 
           {user.plaidItems.length === 0 ? (
-            <p className="mt-4 text-sm text-muted-text">
-              No banks connected yet.
-            </p>
+            <ProfileBankConnect hasConnections={false} />
           ) : (
-            <div className="mt-4 divide-y divide-border">
-              {user.plaidItems.map((item) => (
-                <div key={item.id} className="py-4 first:pt-0 last:pb-0">
-                  <div className="flex flex-wrap items-start justify-between gap-3">
-                    <div>
-                      <div className="font-semibold text-primary-text">
-                        {item.institutionName ?? "Connected institution"}
-                      </div>
-                      <div className="mt-1 text-sm text-muted-text">
-                        Connected {formatDate(item.createdAt)}
-                      </div>
-                    </div>
-                    <span className="rounded-xl border border-border px-3 py-1 text-xs font-semibold text-muted-text">
-                      {item.accounts.length} accounts
-                    </span>
-                  </div>
-
-                  <div className="mt-4 grid gap-3">
-                    {item.accounts.map((account) => (
-                      <div
-                        key={account.id}
-                        className="rounded-xl border border-border bg-raised-bg px-4 py-3"
-                      >
-                        <div className="flex flex-wrap items-center justify-between gap-2">
-                          <div>
-                            <div className="font-medium text-primary-text">
-                              {account.name}
-                            </div>
-                            {account.officialName && (
-                              <div className="mt-1 text-sm text-muted-text">
-                                {account.officialName}
-                              </div>
-                            )}
-                          </div>
-                          <div className="text-right text-sm text-muted-text">
-                            <div>{formatAccountType(account.type, account.subtype)}</div>
-                            {account.mask && <div>•••• {account.mask}</div>}
-                          </div>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              ))}
-            </div>
+            <>
+              <ProfileBankConnect hasConnections />
+              <ConnectedBankList banks={connectedBanks} />
+            </>
           )}
         </div>
       </section>
