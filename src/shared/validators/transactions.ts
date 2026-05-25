@@ -16,8 +16,23 @@ export const TransactionSchema = z.object({
   occurredAt: z.coerce.date(),
   familyId: z.coerce.number().int().positive().nullable().optional(),
   categoryId: z.coerce.number().int().positive().nullable().optional(),
+  plaidAccountId: z.coerce.number().int().positive().nullable().optional(),
   merchant: z.string().trim().max(120).nullable().optional(),
   note: z.string().trim().max(500).nullable().optional(),
+  plaidAccount: z
+    .object({
+      id: z.number().int().positive(),
+      name: z.string(),
+      mask: z.string().nullable().optional(),
+      type: z.string().nullable().optional(),
+      subtype: z.string().nullable().optional(),
+      item: z.object({
+        id: z.number().int().positive(),
+        institutionName: z.string().nullable().optional(),
+      }),
+    })
+    .nullable()
+    .optional(),
 });
 
 export const CreateTransactionSchema = z.object({
