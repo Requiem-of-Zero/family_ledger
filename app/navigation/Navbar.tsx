@@ -2,9 +2,8 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
+import { usePathname } from "next/navigation";
 import { useState, useEffect } from "react";
-import ThemeToggle from "../theme/ThemeToggle";
 import { useTheme } from "../theme/ThemeProvider";
 
 type NavItem = {
@@ -46,9 +45,7 @@ type FamilyFriendNotification = {
 
 export default function NavBar() {
   const pathname = usePathname();
-  const router = useRouter();
   const { theme } = useTheme();
-  const [isLoggingOut, setIsLoggingOut] = useState(false);
 
   // Current user state
   const [me, setMe] = useState<MeUser | null>(null);
@@ -167,27 +164,6 @@ export default function NavBar() {
     };
   }, [me, pathname]);
 
-  async function handleLogout() {
-    setIsLoggingOut(true);
-
-    try {
-      const res = await fetch("/api/auth/logout", {
-        method: "POST",
-        credentials: "include",
-      });
-
-      if (!res.ok) {
-        const body = await res.json().catch(() => ({}));
-        console.error("Logout failed:", body);
-      } else {
-        setMe(null);
-      }
-    } finally {
-      setIsLoggingOut(false);
-      router.push("/login");
-      router.refresh();
-    }
-  }
   return (
     <header className="sticky top-0 z-40 border-b border-border bg-surface-bg/90 backdrop-blur">
       <div className="mx-auto flex w-full max-w-3xl items-center justify-between px-4 py-3">
@@ -293,19 +269,6 @@ export default function NavBar() {
             </Link>
           )}
 
-          <ThemeToggle />
-
-          {/* Logout */}
-          {!isLoadingMe && me && (
-            <button
-              type="button"
-              onClick={handleLogout}
-              disabled={isLoggingOut}
-              className="rounded-xl border border-border bg-raised-bg px-3 py-2 text-sm font-semibold text-primary-text hover:border-border-hover disabled:opacity-70"
-            >
-              {isLoggingOut ? "Logging out…" : "Logout"}
-            </button>
-          )}
         </nav>
       </div>
     </header>
