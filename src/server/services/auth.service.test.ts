@@ -6,6 +6,10 @@ import { hashSessionToken } from "../auth/session";
 beforeEach(async () => {
   // Clean up the DB between tests
   await prisma.session.deleteMany();
+  await prisma.friendGroupMember.deleteMany();
+  await prisma.friendGroup.deleteMany();
+  await prisma.userFriend.deleteMany();
+  await prisma.familyFriend.deleteMany();
   await prisma.transaction.deleteMany();
   await prisma.transactionCategory.deleteMany();
   await prisma.familyMember.deleteMany();
