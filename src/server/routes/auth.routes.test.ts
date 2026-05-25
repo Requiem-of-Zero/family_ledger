@@ -30,6 +30,10 @@ beforeEach(async () => {
   // Clean DB between tests (order matters because foreign keys)
   await prisma.session.deleteMany();
   await prisma.oAuthAccount.deleteMany();
+  await prisma.friendGroupMember.deleteMany();
+  await prisma.friendGroup.deleteMany();
+  await prisma.userFriend.deleteMany();
+  await prisma.familyFriend.deleteMany();
   await prisma.transaction.deleteMany();
   await prisma.transactionCategory.deleteMany();
   await prisma.familyMember.deleteMany();
