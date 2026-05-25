@@ -8,6 +8,7 @@ import { PrismaPg } from "@prisma/adapter-pg";
 
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
+  options: "-c timezone=UTC",
 });
 
 const adapter = new PrismaPg(pool);
