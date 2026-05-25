@@ -10,16 +10,21 @@ export async function getCurrentUserFromRequest(req: Request) {
 
   const tokenHash = hashSessionToken(rawSessionToken);
 
-  const session = await prisma.session.findUnique({
-    where: { tokenHash },
-    include: { user: true },
-  });
+  const session = await prisma.session
+    .findUnique({
+      where: { tokenHash },
+      include: { user: true },
+    })
+    .catch((error: unknown) => {
+      console.error("Failed to load current user session", error);
+      return null;
+    });
 
-  if(!session) return null;
-  if(session.revokedAt) return null;
-  if(session.expiresAt <= new Date()) return null;
+  if (!session) return null;
+  if (session.revokedAt) return null;
+  if (session.expiresAt <= new Date()) return null;
 
-  return session.user
+  return session.user;
 }
 
 // Used by logout to identify which exact session to revoke
