@@ -203,6 +203,20 @@ export default function TransactionsChart({ transactions, typeFilter }: Props) {
    * Used by the Y-axis and tooltip to display values
    */
   const formatCurrency = (value: number) => formatMoney(value, "USD");
+  const formatAxisCurrency = (value: number) => {
+    const absoluteValue = Math.abs(value);
+    const sign = value < 0 ? "-" : "";
+
+    if (absoluteValue >= 100_000_000) {
+      return `${sign}$${Math.round(absoluteValue / 100_000_000)}M`;
+    }
+
+    if (absoluteValue >= 100_000) {
+      return `${sign}$${Math.round(absoluteValue / 100_000)}K`;
+    }
+
+    return `${sign}$${Math.round(absoluteValue / 100)}`;
+  };
 
   return (
     <div className="rounded-card border border-border bg-surface-bg p-4">
@@ -211,7 +225,7 @@ export default function TransactionsChart({ transactions, typeFilter }: Props) {
         {/* LineChart is the main container component from Recharts library */}
         <LineChart
           data={chartData} // The data array we computed above
-          margin={{ top: 5, right: 10, left: 0, bottom: 5 }} // Spacing around the chart
+          margin={{ top: 5, right: 12, left: 8, bottom: 5 }} // Spacing around the chart
         >
           {/* CartesianGrid - Displays the grid lines behind the chart */}
           <CartesianGrid
@@ -231,8 +245,10 @@ export default function TransactionsChart({ transactions, typeFilter }: Props) {
           <YAxis
             stroke="currentColor"
             className="text-xs text-muted-text"
-            tick={{fontSize: 12}}
-            tickFormatter={formatCurrency} // Formats numbers as currency ($1,234.56)
+            width={56}
+            tick={{ fontSize: 12 }}
+            tickMargin={8}
+            tickFormatter={formatAxisCurrency} // Keeps axis labels compact inside the tile
           />
 
           {/* Tooltip - Appears when hovering over data points */}
