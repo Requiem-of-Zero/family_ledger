@@ -9,7 +9,7 @@ type NavItem = {
   label: string;
 };
 
-const NAV: NavItem[] = [
+const AUTH_NAV: NavItem[] = [
   { href: "/transactions", label: "Transactions" },
   /*
    * Add later:
@@ -17,6 +17,8 @@ const NAV: NavItem[] = [
    * {href: "/settings", label: "settings"}
    */
 ];
+
+const PUBLIC_NAV: NavItem[] = [{ href: "/about", label: "About" }];
 
 // Minimal “me” shape for the navbar UI
 type MeUser = {
@@ -33,6 +35,8 @@ export default function NavBar() {
   // Current user state
   const [me, setMe] = useState<MeUser | null>(null);
   const [isLoadingMe, setIsLoadingMe] = useState(true);
+  const navItems = !isLoadingMe && me ? AUTH_NAV : PUBLIC_NAV;
+  const brandHref = !isLoadingMe && me ? "/transactions" : "/about";
 
   // Fetch current user on mount and after route changes
   useEffect(() => {
@@ -96,7 +100,7 @@ export default function NavBar() {
     <header className="sticky top-0 z-40 border-b border-border bg-surface-bg/80 backdrop-blur">
       <div className="mx-auto flex w-full max-w-3xl items-center justify-between px-4 py-3">
         {/* Brand */}
-        <Link href="/transactions" className="flex items-center gap-2">
+        <Link href={brandHref} className="flex items-center gap-2">
           <div className="h-8 w-8 rounded-xl bg-primary" />
           <div className="leading-tight">
             <div className="text-sm font-semibold text-primary-text">
@@ -108,7 +112,7 @@ export default function NavBar() {
 
         {/* Links */}
         <nav className="flex items-center gap-2">
-          {NAV.map((item) => {
+          {navItems.map((item) => {
             const active =
               pathname === item.href || pathname.startsWith(item.href + "/");
 
