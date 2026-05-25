@@ -2,12 +2,12 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { getCurrentUserFromRequest } from "@/src/server/auth/currentUser";
 import { HttpError } from "@/src/server/services/auth.service";
-import { acceptFriendRequest } from "@/src/server/services/friends.service";
+import { acceptFamilyFriendRequest } from "@/src/server/services/families.service";
 
-const FriendRequestIdSchema = z.coerce.number().int().positive();
+const FamilyFriendIdSchema = z.coerce.number().int().positive();
 
-// State transition route: PENDING -> ACCEPTED. The service enforces that only
-// the addressee can accept the request.
+// State transition route: PENDING -> ACCEPTED for a family-friend request.
+// The service enforces owner permission on the receiving family.
 export async function POST(
   req: Request,
   { params }: { params: Promise<{ id: string }> },
@@ -17,15 +17,15 @@ export async function POST(
     if (!user) throw new HttpError("Unauthorized", 401);
 
     const { id } = await params;
-    const parsedId = FriendRequestIdSchema.safeParse(id);
+    const parsedId = FamilyFriendIdSchema.safeParse(id);
 
     if (!parsedId.success) {
-      throw new HttpError("Invalid friend request id", 400, parsedId.error.issues);
+      throw new HttpError("Invalid family friend id", 400, parsedId.error.issues);
     }
 
-    const friendRequest = await acceptFriendRequest(user.id, parsedId.data);
+    const familyFriend = await acceptFamilyFriendRequest(user.id, parsedId.data);
 
-    return NextResponse.json({ friendRequest }, { status: 200 });
+    return NextResponse.json({ familyFriend }, { status: 200 });
   } catch (error) {
     if (error instanceof HttpError) {
       return NextResponse.json(
@@ -34,7 +34,7 @@ export async function POST(
       );
     }
 
-    console.error("POST /api/friends/[id]/accept error:", error);
+    console.error("POST /api/family-friends/[id]/accept error:", error);
     return NextResponse.json(
       { error: "Internal server error" },
       { status: 500 },

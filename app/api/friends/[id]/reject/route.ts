@@ -2,12 +2,12 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { getCurrentUserFromRequest } from "@/src/server/auth/currentUser";
 import { HttpError } from "@/src/server/services/auth.service";
-import { acceptFriendRequest } from "@/src/server/services/friends.service";
+import { rejectFriendRequest } from "@/src/server/services/friends.service";
 
 const FriendRequestIdSchema = z.coerce.number().int().positive();
 
-// State transition route: PENDING -> ACCEPTED. The service enforces that only
-// the addressee can accept the request.
+// State transition route for the receiving user. Rejecting currently deletes
+// the pending request row.
 export async function POST(
   req: Request,
   { params }: { params: Promise<{ id: string }> },
@@ -23,9 +23,9 @@ export async function POST(
       throw new HttpError("Invalid friend request id", 400, parsedId.error.issues);
     }
 
-    const friendRequest = await acceptFriendRequest(user.id, parsedId.data);
+    const result = await rejectFriendRequest(user.id, parsedId.data);
 
-    return NextResponse.json({ friendRequest }, { status: 200 });
+    return NextResponse.json(result, { status: 200 });
   } catch (error) {
     if (error instanceof HttpError) {
       return NextResponse.json(
@@ -34,7 +34,7 @@ export async function POST(
       );
     }
 
-    console.error("POST /api/friends/[id]/accept error:", error);
+    console.error("POST /api/friends/[id]/reject error:", error);
     return NextResponse.json(
       { error: "Internal server error" },
       { status: 500 },
