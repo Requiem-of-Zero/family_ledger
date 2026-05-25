@@ -31,6 +31,17 @@ import TransactionModal from "./TransactionModal";
 import TransactionsChart from "./TransactionChart";
 import { formatMoney } from "@/src/shared/utils/format";
 
+const NO_SOURCES_PARAM = "none";
+
+type PlaidAccountSource = {
+  id: number;
+  name: string;
+  mask?: string | null;
+  item: {
+    institutionName?: string | null;
+  };
+};
+
 export default function TransactionsClient() {
   // ==================== STATE MANAGEMENT ====================
 
@@ -39,6 +50,7 @@ export default function TransactionsClient() {
    * Updated when filters change or when transactions are created/updated/deleted
    */
   const [items, setItems] = useState<Transaction[]>([]);
+  const [plaidAccounts, setPlaidAccounts] = useState<PlaidAccountSource[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -47,6 +59,8 @@ export default function TransactionsClient() {
    * Used for client-side filtering by merchant or note
    */
   const [query, setQuery] = useState("");
+
+  const [isSourceDropdownOpen, setIsSourceDropdownOpen] = useState(false);
 
   /**
    * isModalOpen - Controls visibility of the add/edit transaction modal
@@ -96,6 +110,10 @@ export default function TransactionsClient() {
   const urlTypeRaw = searchParams.get("type");
   const urlFromDateRaw = searchParams.get("from");
   const urlToDateRaw = searchParams.get("to");
+  const selectedSourceParamIds = useMemo(
+    () => searchParams.getAll("source"),
+    [searchParams],
+  );
 
   /**
    * fromDate / toDate - Date range filter state
@@ -162,14 +180,19 @@ export default function TransactionsClient() {
 
     // Add or remove the type parameter
     // null means "show all", so we delete the parameter
-    type === null ? params.delete("type") : params.set("type", type);
+    if (type === null) {
+      params.delete("type");
+    } else {
+      params.set("type", type);
+    }
     const searchParamString = params.toString();
 
     // Update URL - this triggers the component to refetch data
-    router.push(
+    router.replace(
       searchParamString
         ? `${pathname}?${searchParamString.toLowerCase()}`
-        : pathname
+        : pathname,
+      { scroll: false },
     );
   }
 
@@ -197,8 +220,27 @@ export default function TransactionsClient() {
     else params.delete("to");
 
     const searchParamString = params.toString();
-    router.push(
-      searchParamString ? `${pathname}?${searchParamString}` : pathname
+    router.replace(
+      searchParamString ? `${pathname}?${searchParamString}` : pathname,
+      { scroll: false },
+    );
+  }
+
+  function updateSourcesInUrl(sourceIds: string[]) {
+    const params = new URLSearchParams(searchParams.toString());
+    params.delete("source");
+
+    const nextSourceIds =
+      sourceIds.length === 0 ? [NO_SOURCES_PARAM] : sourceIds;
+
+    for (const sourceId of nextSourceIds) {
+      params.append("source", sourceId);
+    }
+
+    const searchParamString = params.toString();
+    router.replace(
+      searchParamString ? `${pathname}?${searchParamString}` : pathname,
+      { scroll: false },
     );
   }
 
@@ -291,14 +333,18 @@ export default function TransactionsClient() {
 
         // Parse the JSON response body
         // If parsing fails, default to empty object (handled below)
-        const body = await res.json().catch(() => ({}));
+        const body: unknown = await res.json().catch(() => ({}));
 
         // Check if the API request was successful
         if (!res.ok) {
           // Extract error message from response or use default
+          const errorMessage =
+            body && typeof body === "object" && "error" in body
+              ? body.error
+              : null;
           const msg =
-            typeof (body as any)?.error === "string"
-              ? (body as any).error
+            typeof errorMessage === "string"
+              ? errorMessage
               : "Failed to load transactions.";
           throw new Error(msg);
         }
@@ -326,9 +372,109 @@ export default function TransactionsClient() {
     }
 
     load(); // Execute the fetch function
+
+    return () => {
+      cancelled = true;
+    };
   }, [typeFilter, reloadKey, fromDate, toDate]); // Re-run when these values change
 
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadPlaidAccounts() {
+      try {
+        const res = await fetch("/api/plaid/accounts", {
+          method: "GET",
+          credentials: "include",
+        });
+
+        const body: unknown = await res.json().catch(() => ({}));
+
+        if (!res.ok) {
+          console.error("Failed to load Plaid accounts:", body);
+          return;
+        }
+
+        if (
+          body &&
+          typeof body === "object" &&
+          "accounts" in body &&
+          Array.isArray(body.accounts) &&
+          !cancelled
+        ) {
+          setPlaidAccounts(body.accounts as PlaidAccountSource[]);
+        }
+      } catch (error) {
+        console.error("Failed to load Plaid accounts:", error);
+      }
+    }
+
+    loadPlaidAccounts();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   // ==================== COMPUTED VALUES (useMemo) ====================
+
+  const accountOptions = useMemo(() => {
+    return plaidAccounts.map((account) => {
+      const institution = account.item.institutionName ?? "Connected bank";
+      const mask = account.mask ? ` •••• ${account.mask}` : "";
+
+      return {
+        value: `plaid:${account.id}`,
+        label: `${institution} · ${account.name}${mask}`,
+      };
+    });
+  }, [plaidAccounts]);
+
+  const sourceOptions = useMemo(
+    () => [
+      { value: "manual", label: "Manual transactions" },
+      ...accountOptions,
+    ],
+    [accountOptions],
+  );
+
+  const allSourceIds = useMemo(
+    () => sourceOptions.map((option) => option.value),
+    [sourceOptions],
+  );
+
+  const selectedSourceIds = useMemo(() => {
+    if (selectedSourceParamIds.includes(NO_SOURCES_PARAM)) return [];
+    if (selectedSourceParamIds.length === 0) return allSourceIds;
+
+    return selectedSourceParamIds.filter((sourceId) =>
+      allSourceIds.includes(sourceId),
+    );
+  }, [allSourceIds, selectedSourceParamIds]);
+  const isDefaultAllSources = selectedSourceParamIds.length === 0;
+
+  const selectedSourceIdSet = useMemo(
+    () => new Set(selectedSourceIds),
+    [selectedSourceIds],
+  );
+
+  const sourceButtonLabel =
+    selectedSourceIds.length === 0
+      ? "No sources"
+      : selectedSourceIds.length === sourceOptions.length
+      ? "All sources selected"
+      : selectedSourceIds.length === 1
+      ? sourceOptions.find((option) => option.value === selectedSourceIds[0])
+          ?.label ?? "1 source"
+      : `${selectedSourceIds.length} sources`;
+
+  function toggleSource(sourceId: string) {
+    const next = selectedSourceIds.includes(sourceId)
+      ? selectedSourceIds.filter((id) => id !== sourceId)
+      : [...selectedSourceIds, sourceId];
+
+    updateSourcesInUrl(next);
+  }
 
   /**
    * filtered - Client-side search filtering
@@ -346,17 +492,33 @@ export default function TransactionsClient() {
   const filtered = useMemo(() => {
     const searchTerm = query.trim().toLowerCase();
 
-    // If no search term, return all items (no client-side filtering needed)
-    if (!searchTerm) return items;
-
-    // Filter transactions that match the search term in merchant or note
+    // Filter by selected sources first, then by merchant/note search.
     return items.filter((tx) => {
+      const sourceId = tx.plaidAccountId
+        ? `plaid:${tx.plaidAccountId}`
+        : "manual";
+
+      if (!isDefaultAllSources && !selectedSourceIdSet.has(sourceId)) {
+        return false;
+      }
+
+      if (!searchTerm) return true;
+
       const merchant = (tx.merchant ?? "").toLowerCase();
       const note = (tx.note ?? "").toLowerCase();
-      // Return true if search term is found in either merchant or note
-      return merchant.includes(searchTerm) || note.includes(searchTerm);
+      const institution = (
+        tx.plaidAccount?.item.institutionName ?? ""
+      ).toLowerCase();
+      const accountName = (tx.plaidAccount?.name ?? "").toLowerCase();
+
+      return (
+        merchant.includes(searchTerm) ||
+        note.includes(searchTerm) ||
+        institution.includes(searchTerm) ||
+        accountName.includes(searchTerm)
+      );
     });
-  }, [items, query]); // Recalculate when transactions or search query changes
+  }, [items, query, isDefaultAllSources, selectedSourceIdSet]); // Recalculate when filters/search change
 
   /**
    * totalCents - Sum of all filtered transaction amounts
@@ -374,9 +536,11 @@ export default function TransactionsClient() {
     let sum = 0;
 
     for (let i = 0; i < filtered.length; i++) {
-      filtered[i].type === "INCOME"
-        ? (sum += filtered[i].amountCents)
-        : (sum -= filtered[i].amountCents);
+      if (filtered[i].type === "INCOME") {
+        sum += filtered[i].amountCents;
+      } else {
+        sum -= filtered[i].amountCents;
+      }
     }
 
     return sum;
@@ -585,6 +749,58 @@ export default function TransactionsClient() {
             </div>
           </div>
 
+          {/* Source Filter - Shows which connected bank/account data is visible */}
+          <div className="relative mt-3">
+            <div className="mb-2 flex items-center justify-between gap-3 text-xs font-medium text-muted-text">
+              <span>Source</span>
+              <span>{sourceOptions.length} available</span>
+            </div>
+            <button
+              type="button"
+              onClick={() => setIsSourceDropdownOpen((open) => !open)}
+              className="flex w-full items-center justify-between rounded-xl border border-border bg-raised-bg px-3 py-2 text-left text-sm text-primary-text hover:border-border-hover"
+            >
+              <span className="truncate">{sourceButtonLabel}</span>
+              <span className="text-muted-text">
+                {isSourceDropdownOpen ? "Close" : "Choose"}
+              </span>
+            </button>
+
+            {isSourceDropdownOpen && (
+              <div className="absolute left-0 right-0 z-50 mt-2 rounded-xl border border-border bg-surface-bg p-2 shadow-lg">
+                <div
+                  className="h-72 space-y-2 overflow-y-scroll overscroll-contain pr-1"
+                  onWheel={(event) => event.stopPropagation()}
+                >
+                  <div className="sticky top-0 z-10 mb-2 flex gap-2 bg-surface-bg pb-2">
+                    <button
+                      type="button"
+                      onClick={() => updateSourcesInUrl(allSourceIds)}
+                      className="flex-1 rounded-lg border border-border bg-raised-bg px-3 py-2 text-xs font-semibold text-primary-text hover:border-border-hover"
+                    >
+                      Select all
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => updateSourcesInUrl([])}
+                      className="flex-1 rounded-lg border border-border bg-raised-bg px-3 py-2 text-xs font-semibold text-primary-text hover:border-border-hover"
+                    >
+                      Clear all
+                    </button>
+                  </div>
+                  {sourceOptions.map((option) => (
+                    <SourceCheckbox
+                      key={option.value}
+                      label={option.label}
+                      checked={selectedSourceIds.includes(option.value)}
+                      onChange={() => toggleSource(option.value)}
+                    />
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+
           {/* Summary Row - Shows count and total */}
           <div className="mt-3 flex items-center justify-between text-sm">
             {/* Transaction Count - Shows how many transactions match filters */}
@@ -656,5 +872,27 @@ export default function TransactionsClient() {
         onSaved={() => setReloadKey((key) => key + 1)} // Refresh list after save
       />
     </main>
+  );
+}
+
+function SourceCheckbox({
+  label,
+  checked,
+  onChange,
+}: {
+  label: string;
+  checked: boolean;
+  onChange: () => void;
+}) {
+  return (
+    <label className="flex min-h-10 items-center gap-2 rounded-xl border border-border bg-raised-bg px-3 py-2 text-sm text-primary-text">
+      <input
+        type="checkbox"
+        checked={checked}
+        onChange={onChange}
+        className="h-4 w-4 rounded border-border accent-primary"
+      />
+      <span className="min-w-0 truncate">{label}</span>
+    </label>
   );
 }
