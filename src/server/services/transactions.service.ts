@@ -6,6 +6,35 @@ import type {
   UpdateTransactionInput,
 } from "@/src/shared/validators/transactions";
 
+export async function getDefaultFamilyIdForUser(userId: number) {
+  // New users are created as OWNER of their first family. Prefer that family,
+  // then fall back to any active family membership if the app grows later.
+  const ownedFamily = await prisma.familyMember.findFirst({
+    where: {
+      userId,
+      isActive: true,
+      memberRole: "OWNER",
+      family: { deletedAt: null },
+    },
+    orderBy: { joinedAt: "asc" },
+    select: { familyId: true },
+  });
+
+  if (ownedFamily) return ownedFamily.familyId;
+
+  const activeFamily = await prisma.familyMember.findFirst({
+    where: {
+      userId,
+      isActive: true,
+      family: { deletedAt: null },
+    },
+    orderBy: { joinedAt: "asc" },
+    select: { familyId: true },
+  });
+
+  return activeFamily?.familyId ?? null;
+}
+
 /*
 Creates a transaction for the given user
 */
@@ -13,10 +42,12 @@ export async function createTransactionForUser(
   userId: number,
   input: CreateTransactionInput,
 ) {
+  const familyId = input.familyId ?? (await getDefaultFamilyIdForUser(userId));
+
   const transaction = await prisma.transaction.create({
     data: {
       createdByUserId: userId,
-      familyId: input.familyId ?? null,
+      familyId,
       categoryId: input.categoryId ?? null,
       amountCents: input.amountCents,
       type: input.type,
