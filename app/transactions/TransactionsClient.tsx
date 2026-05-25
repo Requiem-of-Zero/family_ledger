@@ -920,11 +920,6 @@ export default function TransactionsClient() {
             </div>
           )}
         </div>
-
-        {/* Development Note - TODO items (can be removed in production) */}
-        <p className="text-xs text-muted-text">
-          Next: hook up from/to dates, familyId, pagination, and Add/Edit flows.
-        </p>
       </div>
 
       {/* Transaction Modal - For adding/editing transactions */}
