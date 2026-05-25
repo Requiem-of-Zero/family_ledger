@@ -14,7 +14,7 @@
 
 "use client";
 
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   LineChart,
   Line,
@@ -71,6 +71,12 @@ type Props = {
  * @returns JSX element containing the chart
  */
 export default function TransactionsChart({ transactions, typeFilter }: Props) {
+  const [isMounted, setIsMounted] = useState(false);
+
+  useEffect(() => {
+    setIsMounted(true);
+  }, []);
+
   /**
    * chartData - Memoized computed chart data
    *
@@ -170,6 +176,16 @@ export default function TransactionsChart({ transactions, typeFilter }: Props) {
     if (typeFilter === "INCOME") return "#22c55e"; // green for income
     return "#3b82f6"; // blue for net
   }, [typeFilter]); // Recalculate when filter changes
+
+  // Recharts generates SVG attributes during render. Waiting until mount keeps
+  // the server HTML and the browser's first render identical.
+  if (!isMounted) {
+    return (
+      <div className="rounded-card border border-border bg-surface-bg p-4">
+        <div className="h-[300px]" />
+      </div>
+    );
+  }
 
   // Early return: Show message if there's no data to display
   if (chartData.length === 0) {
