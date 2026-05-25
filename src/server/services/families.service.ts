@@ -1,0 +1,305 @@
+import { prisma } from "@/src/server/db/prisma";
+import { HttpError } from "@/src/server/services/auth.service";
+
+// Public user shape for family/member responses. Keeping this centralized makes
+// it harder to accidentally include auth-sensitive fields in nested payloads.
+const FamilyUserSelect = {
+  id: true,
+  email: true,
+  username: true,
+} as const;
+
+// Baseline authorization helper for family-scoped actions. A missing membership
+// is reported as 404 so callers cannot probe arbitrary family ids.
+async function requireActiveFamilyMembership(userId: number, familyId: number) {
+  const membership = await prisma.familyMember.findFirst({
+    where: {
+      userId,
+      familyId,
+      isActive: true,
+      family: { deletedAt: null },
+    },
+  });
+
+  if (!membership) {
+    throw new HttpError("Family not found", 404);
+  }
+
+  return membership;
+}
+
+// Owner-only guard for operations that mutate family membership or family-level
+// relationships. Multiple owner roles can be supported later by this same check.
+async function requireFamilyOwner(userId: number, familyId: number) {
+  const membership = await requireActiveFamilyMembership(userId, familyId);
+
+  if (membership.memberRole !== "OWNER") {
+    throw new HttpError("Only a family owner can perform this action", 403);
+  }
+
+  return membership;
+}
+
+// Returns all active families for a user with enough nested data to build a
+// family switcher, member list, or permissions-aware UI.
+export async function listFamiliesForUser(userId: number) {
+  const memberships = await prisma.familyMember.findMany({
+    where: {
+      userId,
+      isActive: true,
+      family: { deletedAt: null },
+    },
+    include: {
+      family: {
+        include: {
+          creator: {
+            select: FamilyUserSelect,
+          },
+          members: {
+            where: { isActive: true },
+            include: {
+              user: {
+                select: FamilyUserSelect,
+              },
+            },
+            orderBy: { joinedAt: "asc" },
+          },
+        },
+      },
+    },
+    orderBy: { joinedAt: "asc" },
+  });
+
+  return memberships.map((membership) => ({
+    id: membership.family.id,
+    name: membership.family.name,
+    currentUserRole: membership.memberRole,
+    createdAt: membership.family.createdAt,
+    creator: membership.family.creator,
+    members: membership.family.members.map((member) => ({
+      id: member.id,
+      role: member.memberRole,
+      joinedAt: member.joinedAt,
+      user: member.user,
+    })),
+  }));
+}
+
+// Creates a family and immediately makes the creator its first OWNER member.
+export async function createFamilyForUser(userId: number, name: string) {
+  return prisma.family.create({
+    data: {
+      name,
+      createdBy: userId,
+      members: {
+        create: {
+          userId,
+          memberRole: "OWNER",
+        },
+      },
+    },
+    include: {
+      members: {
+        include: {
+          user: {
+            select: FamilyUserSelect,
+          },
+        },
+      },
+    },
+  });
+}
+
+export async function addFamilyMemberByEmail(
+  actorUserId: number,
+  familyId: number,
+  memberEmail: string,
+) {
+  // For now, invitations are direct adds by email. When invite links are added,
+  // this should become a pending invitation flow instead of immediate membership.
+  await requireFamilyOwner(actorUserId, familyId);
+
+  const user = await prisma.user.findUnique({
+    where: { email: memberEmail },
+    select: FamilyUserSelect,
+  });
+
+  if (!user) {
+    throw new HttpError("User not found", 404);
+  }
+
+  return prisma.familyMember.upsert({
+    where: {
+      familyId_userId: {
+        familyId,
+        userId: user.id,
+      },
+    },
+    update: {
+      isActive: true,
+      leftAt: null,
+    },
+    create: {
+      familyId,
+      userId: user.id,
+      memberRole: "MEMBER",
+    },
+    include: {
+      user: {
+        select: FamilyUserSelect,
+      },
+    },
+  });
+}
+
+export async function sendFamilyFriendRequest(
+  actorUserId: number,
+  requesterFamilyId: number,
+  addresseeFamilyId: number,
+) {
+  // Family friendships are family-level relationships, so only an owner of the
+  // requesting family can initiate them.
+  await requireFamilyOwner(actorUserId, requesterFamilyId);
+
+  if (requesterFamilyId === addresseeFamilyId) {
+    throw new HttpError("A family cannot friend itself", 400);
+  }
+
+  const addresseeFamily = await prisma.family.findFirst({
+    where: { id: addresseeFamilyId, deletedAt: null },
+    select: { id: true },
+  });
+
+  if (!addresseeFamily) {
+    throw new HttpError("Family not found", 404);
+  }
+
+  const existing = await prisma.familyFriend.findFirst({
+    where: {
+      OR: [
+        { requesterFamilyId, addresseeFamilyId },
+        {
+          requesterFamilyId: addresseeFamilyId,
+          addresseeFamilyId: requesterFamilyId,
+        },
+      ],
+    },
+  });
+
+  if (existing) {
+    throw new HttpError("Family friend request already exists", 409);
+  }
+
+  return prisma.familyFriend.create({
+    data: {
+      requesterFamilyId,
+      addresseeFamilyId,
+      status: "PENDING",
+    },
+    include: {
+      requesterFamily: true,
+      addresseeFamily: true,
+    },
+  });
+}
+
+export async function listFamilyFriendRelationshipsForUser(userId: number) {
+  // A user sees family-friend rows for every active family they belong to. The
+  // UI can later filter this by one selected family if needed.
+  const familyIds = await prisma.familyMember
+    .findMany({
+      where: {
+        userId,
+        isActive: true,
+        family: { deletedAt: null },
+      },
+      select: { familyId: true },
+    })
+    .then((memberships) =>
+      memberships.map((membership) => membership.familyId),
+    );
+
+  return prisma.familyFriend.findMany({
+    where: {
+      OR: [
+        { requesterFamilyId: { in: familyIds } },
+        { addresseeFamilyId: { in: familyIds } },
+      ],
+    },
+    include: {
+      requesterFamily: true,
+      addresseeFamily: true,
+    },
+    orderBy: [{ status: "asc" }, { createdAt: "desc" }],
+  });
+}
+
+export async function acceptFamilyFriendRequest(
+  actorUserId: number,
+  familyFriendId: number,
+) {
+  // Accepting is owner-only on the receiving family, mirroring user friend
+  // requests where only the addressee can accept.
+  const familyFriend = await prisma.familyFriend.findUnique({
+    where: { id: familyFriendId },
+    select: {
+      id: true,
+      addresseeFamilyId: true,
+      status: true,
+    },
+  });
+
+  if (!familyFriend) {
+    throw new HttpError("Family friend request not found", 404);
+  }
+
+  await requireFamilyOwner(actorUserId, familyFriend.addresseeFamilyId);
+
+  if (familyFriend.status !== "PENDING") {
+    throw new HttpError("Family friend request is not pending", 409);
+  }
+
+  return prisma.familyFriend.update({
+    where: { id: familyFriend.id },
+    data: {
+      status: "ACCEPTED",
+      acceptedAt: new Date(),
+    },
+    include: {
+      requesterFamily: true,
+      addresseeFamily: true,
+    },
+  });
+}
+
+export async function rejectFamilyFriendRequest(
+  actorUserId: number,
+  familyFriendId: number,
+) {
+  // Rejection deletes the pending family-friend row. As with user friends, this
+  // can become a retained status later if product needs an audit trail.
+  const familyFriend = await prisma.familyFriend.findUnique({
+    where: { id: familyFriendId },
+    select: {
+      id: true,
+      addresseeFamilyId: true,
+      status: true,
+    },
+  });
+
+  if (!familyFriend) {
+    throw new HttpError("Family friend request not found", 404);
+  }
+
+  await requireFamilyOwner(actorUserId, familyFriend.addresseeFamilyId);
+
+  if (familyFriend.status !== "PENDING") {
+    throw new HttpError("Family friend request is not pending", 409);
+  }
+
+  await prisma.familyFriend.delete({
+    where: { id: familyFriend.id },
+  });
+
+  return { rejectedFamilyFriendRequestId: familyFriend.id };
+}
