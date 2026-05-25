@@ -80,6 +80,23 @@ export async function listTransactionsForUser(
           }
         : {}),
     },
+    include: {
+      plaidAccount: {
+        select: {
+          id: true,
+          name: true,
+          mask: true,
+          type: true,
+          subtype: true,
+          item: {
+            select: {
+              id: true,
+              institutionName: true,
+            },
+          },
+        },
+      },
+    },
     orderBy: { occurredAt: "desc" },
   });
 }
