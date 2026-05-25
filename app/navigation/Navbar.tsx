@@ -1,8 +1,11 @@
 "use client";
 
+import Image from "next/image";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useState, useEffect } from "react";
+import ThemeToggle from "../theme/ThemeToggle";
+import { useTheme } from "../theme/ThemeProvider";
 
 type NavItem = {
   href: string;
@@ -30,6 +33,7 @@ type MeUser = {
 export default function NavBar() {
   const pathname = usePathname();
   const router = useRouter();
+  const { theme } = useTheme();
   const [isLoggingOut, setIsLoggingOut] = useState(false);
 
   // Current user state
@@ -97,17 +101,30 @@ export default function NavBar() {
     }
   }
   return (
-    <header className="sticky top-0 z-40 border-b border-border bg-surface-bg/80 backdrop-blur">
+    <header className="sticky top-0 z-40 border-b border-border bg-surface-bg/90 backdrop-blur">
       <div className="mx-auto flex w-full max-w-3xl items-center justify-between px-4 py-3">
         {/* Brand */}
-        <Link href={brandHref} className="flex items-center gap-2">
-          <div className="h-8 w-8 rounded-xl bg-primary" />
-          <div className="leading-tight">
-            <div className="text-sm font-semibold text-primary-text">
-              All-in Ledger
-            </div>
-            <div className="text-xs text-muted-text">Personal finance</div>
-          </div>
+        <Link href={brandHref} className="flex items-center">
+          <Image
+            src={
+              theme === "light"
+                ? "/brand/family-ledger-horizontal-dark-transparent.png"
+                : "/brand/family-ledger-horizontal-transparent.png"
+            }
+            alt="Family Ledger home"
+            width={240}
+            height={61}
+            className="hidden h-9 w-auto object-contain sm:block"
+            priority
+          />
+          <Image
+            src="/brand/family-ledger-app-icon.png"
+            alt="Family Ledger home"
+            width={36}
+            height={36}
+            className="h-9 w-9 rounded-xl border border-border object-cover sm:hidden"
+            priority
+          />
         </Link>
 
         {/* Links */}
@@ -140,6 +157,8 @@ export default function NavBar() {
               </span>
             </Link>
           )}
+
+          <ThemeToggle />
 
           {/* Logout */}
           {!isLoadingMe && me && (
