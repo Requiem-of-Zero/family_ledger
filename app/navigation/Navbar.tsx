@@ -30,6 +30,20 @@ type MeUser = {
   username: string;
 };
 
+type FriendNotification = {
+  status: string;
+  direction: string;
+};
+
+type FamilySummary = {
+  id: number;
+};
+
+type FamilyFriendNotification = {
+  status: string;
+  addresseeFamilyId: number;
+};
+
 export default function NavBar() {
   const pathname = usePathname();
   const router = useRouter();
@@ -39,8 +53,14 @@ export default function NavBar() {
   // Current user state
   const [me, setMe] = useState<MeUser | null>(null);
   const [isLoadingMe, setIsLoadingMe] = useState(true);
+  const [notificationCounts, setNotificationCounts] = useState({
+    friends: 0,
+    families: 0,
+  });
   const navItems = !isLoadingMe && me ? AUTH_NAV : PUBLIC_NAV;
   const brandHref = !isLoadingMe && me ? "/transactions" : "/about";
+  const notificationTotal =
+    notificationCounts.friends + notificationCounts.families;
 
   // Fetch current user on mount and after route changes
   useEffect(() => {
@@ -78,6 +98,74 @@ export default function NavBar() {
       isCurrent = false;
     };
   }, [pathname]);
+
+  // The bell is intentionally read-only for now. It aggregates request counts
+  // from the existing friend/family APIs and links users to the profile section
+  // where those requests are displayed.
+  useEffect(() => {
+    if (!me) {
+      setNotificationCounts({ friends: 0, families: 0 });
+      return;
+    }
+
+    let isCurrent = true;
+
+    async function fetchNotificationCounts() {
+      try {
+        const [friendsRes, familiesRes, familyFriendsRes] = await Promise.all([
+          fetch("/api/friends", { credentials: "include" }),
+          fetch("/api/families", { credentials: "include" }),
+          fetch("/api/family-friends", { credentials: "include" }),
+        ]);
+
+        if (!isCurrent) return;
+
+        const friendsBody = friendsRes.ok
+          ? await friendsRes.json().catch(() => ({}))
+          : {};
+        const familiesBody = familiesRes.ok
+          ? await familiesRes.json().catch(() => ({}))
+          : {};
+        const familyFriendsBody = familyFriendsRes.ok
+          ? await familyFriendsRes.json().catch(() => ({}))
+          : {};
+
+        const friends = Array.isArray(friendsBody.friends)
+          ? (friendsBody.friends as FriendNotification[])
+          : [];
+        const families = Array.isArray(familiesBody.families)
+          ? (familiesBody.families as FamilySummary[])
+          : [];
+        const familyFriends = Array.isArray(familyFriendsBody.familyFriends)
+          ? (familyFriendsBody.familyFriends as FamilyFriendNotification[])
+          : [];
+        const familyIds = new Set(families.map((family) => family.id));
+
+        setNotificationCounts({
+          friends: friends.filter(
+            (friend) =>
+              friend.status === "PENDING" && friend.direction === "RECEIVED",
+          ).length,
+          families: familyFriends.filter(
+            (relationship) =>
+              relationship.status === "PENDING" &&
+              familyIds.has(relationship.addresseeFamilyId),
+          ).length,
+        });
+      } catch (error) {
+        if (!isCurrent) return;
+
+        console.error("Failed to fetch notifications:", error);
+        setNotificationCounts({ friends: 0, families: 0 });
+      }
+    }
+
+    fetchNotificationCounts();
+
+    return () => {
+      isCurrent = false;
+    };
+  }, [me, pathname]);
 
   async function handleLogout() {
     setIsLoggingOut(true);
@@ -150,6 +238,53 @@ export default function NavBar() {
           })}
 
           {/* User Display - Show username or email when logged in */}
+          {!isLoadingMe && me && (
+            <div className="group relative">
+              <Link
+                href="/profile#requests"
+                aria-label={`${notificationTotal} notifications`}
+                title="Notifications"
+                className="relative grid h-10 w-10 place-items-center rounded-xl border border-border bg-raised-bg text-primary-text hover:border-border-hover"
+              >
+                <svg
+                  aria-hidden="true"
+                  viewBox="0 0 24 24"
+                  className="h-5 w-5"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth="2"
+                >
+                  <path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9" />
+                  <path d="M13.73 21a2 2 0 0 1-3.46 0" />
+                </svg>
+                {notificationTotal > 0 && (
+                  <span className="absolute -right-1 -top-1 grid h-5 min-w-5 place-items-center rounded-full bg-primary px-1 text-[10px] font-bold text-primary-fg">
+                    {notificationTotal}
+                  </span>
+                )}
+              </Link>
+              <div className="absolute right-0 top-full z-50 hidden w-56 pt-2 group-hover:block group-focus-within:block">
+                <div className="rounded-xl border border-border bg-surface-bg p-3 text-sm shadow-lg">
+                  <div className="font-semibold text-primary-text">
+                    Notifications
+                  </div>
+                  <div className="mt-2 grid gap-1 text-muted-text">
+                    <div>{notificationCounts.friends} friend requests</div>
+                    <div>{notificationCounts.families} family requests</div>
+                  </div>
+                  <Link
+                    href="/profile#requests"
+                    className="mt-3 block rounded-lg border border-border bg-raised-bg px-3 py-2 text-xs font-semibold text-primary-text hover:border-border-hover"
+                  >
+                    Open profile requests
+                  </Link>
+                </div>
+              </div>
+            </div>
+          )}
+
           {!isLoadingMe && me && (
             <Link href="/profile" className="rounded-xl border border-border bg-raised-bg px-3 py-2 text-sm hover:border-border-hover">
               <span className="font-semibold text-primary-text">
