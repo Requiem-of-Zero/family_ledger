@@ -135,11 +135,11 @@ export default function NavBar() {
 
           {/* User Display - Show username or email when logged in */}
           {!isLoadingMe && me && (
-            <div className="rounded-xl border border-border bg-raised-bg px-3 py-2 text-sm">
+            <Link href="/profile" className="rounded-xl border border-border bg-raised-bg px-3 py-2 text-sm hover:border-border-hover">
               <span className="font-semibold text-primary-text">
                 {me.username || me.email.split("@")[0]}
               </span>
-            </div>
+            </Link>
           )}
 
           {/* Plaid Link - starts the bank connection flow for logged-in users */}
