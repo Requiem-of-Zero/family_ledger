@@ -19,7 +19,7 @@
 
 "use client";
 
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
   TransactionListResponseSchema,
@@ -62,6 +62,7 @@ export default function TransactionsClient() {
 
   const [isSourceDropdownOpen, setIsSourceDropdownOpen] = useState(false);
   const [sourceSearch, setSourceSearch] = useState("");
+  const sourceDropdownRef = useRef<HTMLDivElement | null>(null);
 
   /**
    * isModalOpen - Controls visibility of the add/edit transaction modal
@@ -416,6 +417,26 @@ export default function TransactionsClient() {
       cancelled = true;
     };
   }, []);
+
+  useEffect(() => {
+    if (!isSourceDropdownOpen) return;
+
+    function handlePointerDown(event: PointerEvent) {
+      const dropdown = sourceDropdownRef.current;
+      const target = event.target;
+
+      if (!(target instanceof Node)) return;
+      if (dropdown?.contains(target)) return;
+
+      setIsSourceDropdownOpen(false);
+    }
+
+    document.addEventListener("pointerdown", handlePointerDown);
+
+    return () => {
+      document.removeEventListener("pointerdown", handlePointerDown);
+    };
+  }, [isSourceDropdownOpen]);
 
   // ==================== COMPUTED VALUES (useMemo) ====================
 
@@ -778,7 +799,7 @@ export default function TransactionsClient() {
           </div>
 
           {/* Source Filter - Shows which connected bank/account data is visible */}
-          <div className="relative mt-3">
+          <div ref={sourceDropdownRef} className="relative mt-3">
             <div className="mb-2 flex items-center justify-between gap-3 text-xs font-medium text-muted-text">
               <span>Source</span>
               <span>{sourceOptions.length} available</span>
