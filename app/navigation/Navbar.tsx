@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useState, useEffect } from "react";
+import PlaidLinkButton from "./PlaidLinkButton";
 
 type NavItem = {
   href: string;
@@ -140,6 +141,9 @@ export default function NavBar() {
               </span>
             </div>
           )}
+
+          {/* Plaid Link - starts the bank connection flow for logged-in users */}
+          {!isLoadingMe && me && <PlaidLinkButton />}
 
           {/* Logout */}
           {!isLoadingMe && me && (
