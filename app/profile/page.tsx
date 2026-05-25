@@ -7,6 +7,7 @@ import { formatDate } from "@/src/shared/utils/format";
 import ConnectedBankList from "./ConnectedBankList";
 import FriendRequestManager from "./FriendRequestManager";
 import ProfileBankConnect from "./ProfileBankConnect";
+import ProfileLogoutButton from "./ProfileLogoutButton";
 
 export default async function ProfilePage() {
   // Server pages do not receive the browser Request object directly, so we
@@ -254,9 +255,12 @@ export default async function ProfilePage() {
 
       <section className="mt-8 grid gap-6">
         <div className="rounded-xl border border-border bg-surface-bg p-5">
-          <h2 className="text-lg font-semibold text-primary-text">
-            Account information
-          </h2>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <h2 className="text-lg font-semibold text-primary-text">
+              Account information
+            </h2>
+            <ProfileLogoutButton />
+          </div>
           <dl className="mt-4 grid gap-4 sm:grid-cols-2">
             <InfoItem label="Email" value={user.email} />
             <InfoItem label="Username" value={user.username} />
