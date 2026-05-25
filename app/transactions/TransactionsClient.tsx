@@ -61,6 +61,7 @@ export default function TransactionsClient() {
   const [query, setQuery] = useState("");
 
   const [isSourceDropdownOpen, setIsSourceDropdownOpen] = useState(false);
+  const [sourceSearch, setSourceSearch] = useState("");
 
   /**
    * isModalOpen - Controls visibility of the add/edit transaction modal
@@ -443,6 +444,22 @@ export default function TransactionsClient() {
     [sourceOptions],
   );
 
+  const visibleSourceOptions = useMemo(() => {
+    const searchTerm = sourceSearch.trim().toLowerCase();
+
+    if (!searchTerm) return sourceOptions;
+
+    return sourceOptions.filter((option) =>
+      option.label.toLowerCase().includes(searchTerm),
+    );
+  }, [sourceOptions, sourceSearch]);
+
+  const visibleSourceIds = useMemo(
+    () => visibleSourceOptions.map((option) => option.value),
+    [visibleSourceOptions],
+  );
+  const hasSourceSearch = sourceSearch.trim().length > 0;
+
   const selectedSourceIds = useMemo(() => {
     if (selectedSourceParamIds.includes(NO_SOURCES_PARAM)) return [];
     if (selectedSourceParamIds.length === 0) return allSourceIds;
@@ -474,6 +491,17 @@ export default function TransactionsClient() {
       : [...selectedSourceIds, sourceId];
 
     updateSourcesInUrl(next);
+  }
+
+  function selectVisibleSources() {
+    updateSourcesInUrl(Array.from(new Set([...selectedSourceIds, ...visibleSourceIds])));
+  }
+
+  function clearVisibleSources() {
+    const visibleSourceIdSet = new Set(visibleSourceIds);
+    updateSourcesInUrl(
+      selectedSourceIds.filter((sourceId) => !visibleSourceIdSet.has(sourceId)),
+    );
   }
 
   /**
@@ -772,23 +800,38 @@ export default function TransactionsClient() {
                   className="h-72 space-y-2 overflow-y-scroll overscroll-contain pr-1"
                   onWheel={(event) => event.stopPropagation()}
                 >
-                  <div className="sticky top-0 z-10 mb-2 flex gap-2 bg-surface-bg pb-2">
+                  <div className="sticky top-0 z-10 mb-2 space-y-2 bg-surface-bg pb-2">
+                    <input
+                      value={sourceSearch}
+                      onChange={(event) => setSourceSearch(event.target.value)}
+                      placeholder="Search sources..."
+                      className="w-full rounded-lg border border-border bg-raised-bg px-3 py-2 text-sm outline-none focus:border-border-hover"
+                    />
+                    <div className="flex gap-2">
                     <button
                       type="button"
-                      onClick={() => updateSourcesInUrl(allSourceIds)}
+                      onClick={selectVisibleSources}
+                      disabled={visibleSourceIds.length === 0}
                       className="flex-1 rounded-lg border border-border bg-raised-bg px-3 py-2 text-xs font-semibold text-primary-text hover:border-border-hover"
                     >
-                      Select all
+                      {hasSourceSearch ? "Select list" : "Select all"}
                     </button>
                     <button
                       type="button"
-                      onClick={() => updateSourcesInUrl([])}
+                      onClick={clearVisibleSources}
+                      disabled={visibleSourceIds.length === 0}
                       className="flex-1 rounded-lg border border-border bg-raised-bg px-3 py-2 text-xs font-semibold text-primary-text hover:border-border-hover"
                     >
-                      Clear all
+                      {hasSourceSearch ? "Clear list" : "Clear all"}
                     </button>
+                    </div>
                   </div>
-                  {sourceOptions.map((option) => (
+                  {visibleSourceOptions.length === 0 ? (
+                    <div className="rounded-lg border border-border bg-raised-bg px-3 py-2 text-sm text-muted-text">
+                      No sources match your search.
+                    </div>
+                  ) : null}
+                  {visibleSourceOptions.map((option) => (
                     <SourceCheckbox
                       key={option.value}
                       label={option.label}
