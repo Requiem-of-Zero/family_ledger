@@ -128,6 +128,58 @@ export async function listPlaidAccountsForUser(userId: number) {
   });
 }
 
+export async function disconnectPlaidItemForUser(
+  userId: number,
+  plaidItemId: number,
+  options: { deleteImportedTransactions?: boolean } = {},
+) {
+  const item = await prisma.plaidItem.findFirst({
+    where: {
+      id: plaidItemId,
+      userId,
+    },
+    include: {
+      accounts: {
+        select: { id: true },
+      },
+    },
+  });
+
+  if (!item) return null;
+
+  // Ask Plaid to revoke this Item's access token first. After this succeeds,
+  // remove our local token/account records too.
+  await plaidClient.itemRemove({
+    access_token: item.accessToken,
+  });
+
+  const accountIds = item.accounts.map((account) => account.id);
+  let affectedTransactionsCount = 0;
+
+  await prisma.$transaction(async (tx) => {
+    const transactions = await tx.transaction.updateMany({
+      where: {
+        createdByUserId: userId,
+        plaidAccountId: { in: accountIds },
+      },
+      data: options.deleteImportedTransactions
+        ? { deletedAt: new Date() }
+        : { plaidAccountId: null },
+    });
+    affectedTransactionsCount = transactions.count;
+
+    await tx.plaidItem.delete({
+      where: { id: item.id },
+    });
+  });
+
+  return {
+    disconnectedItemId: item.id,
+    deletedImportedTransactions: Boolean(options.deleteImportedTransactions),
+    affectedTransactionsCount,
+  };
+}
+
 function mapPlaidAmountToLedgerType(amount: number) {
   // Plaid Transactions uses positive amounts for money leaving the account
   // and negative amounts for money entering the account.
