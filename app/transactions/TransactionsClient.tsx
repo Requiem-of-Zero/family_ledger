@@ -620,8 +620,9 @@ export default function TransactionsClient() {
             </div>
           ) : (
             // Transaction List - Render each transaction as a row
+            <div className="max-h-[700px] overflow-y-auto rounded-card">
             <ul className="divide-y divide-border">
-              {filtered.map((tx) => (
+              {filtered.slice(0,40).map((tx) => (
                 <li key={tx.id} className="p-4 hover:bg-raised-bg">
                   <TransactionRow
                     tx={tx}
@@ -636,6 +637,7 @@ export default function TransactionsClient() {
                 </li>
               ))}
             </ul>
+            </div>
           )}
         </div>
 
