@@ -226,9 +226,9 @@ export default function TransactionsChart({ transactions, typeFilter }: Props) {
               border: "1px solid var(--border)",
               borderRadius: "0.75rem",
             }}
-            formatter={(value: number | undefined) =>
+            formatter={(value) =>
               // Format the tooltip value as currency
-              value !== undefined ? formatCurrency(value) : ""
+              typeof value === "number" ? formatCurrency(value) : ""
             }
           />
 
