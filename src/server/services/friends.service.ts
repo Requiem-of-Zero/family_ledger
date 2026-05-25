@@ -210,6 +210,51 @@ export async function cancelFriendRequest(
   return { canceledFriendRequestId: friendRequest.id };
 }
 
+export async function blockFriendRelationship(
+  userId: number,
+  friendRequestId: number,
+) {
+  // Blocking preserves a relationship row with BLOCKED status. That record is
+  // what prevents the same pair from immediately creating another request.
+  const relationship = await prisma.userFriend.findUnique({
+    where: { id: friendRequestId },
+    select: {
+      id: true,
+      requesterId: true,
+      addresseeId: true,
+      status: true,
+    },
+  });
+
+  if (!relationship) {
+    throw new HttpError("Friend relationship not found", 404);
+  }
+
+  if (relationship.requesterId !== userId && relationship.addresseeId !== userId) {
+    throw new HttpError("You are not part of this friend relationship", 403);
+  }
+
+  if (relationship.status === "BLOCKED") {
+    throw new HttpError("Friend relationship is already blocked", 409);
+  }
+
+  return prisma.userFriend.update({
+    where: { id: relationship.id },
+    data: {
+      status: "BLOCKED",
+      acceptedAt: null,
+    },
+    include: {
+      requester: {
+        select: FriendUserSelect,
+      },
+      addressee: {
+        select: FriendUserSelect,
+      },
+    },
+  });
+}
+
 export async function removeFriendRelationship(
   userId: number,
   friendRequestId: number,
