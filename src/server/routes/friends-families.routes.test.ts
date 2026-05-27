@@ -9,6 +9,10 @@ import {
   GET as familiesGET,
   POST as familiesPOST,
 } from "@/app/api/families/route";
+import {
+  DELETE as familyDELETE,
+  PATCH as familyPATCH,
+} from "@/app/api/families/[id]/route";
 import { POST as familyMembersPOST } from "@/app/api/families/[id]/members/route";
 import { DELETE as familyMemberDELETE } from "@/app/api/families/[id]/members/[memberId]/route";
 import {
@@ -282,6 +286,100 @@ describe("families and shared ledger routes", () => {
 
     const familiesBody = await familiesRes.json();
     expect(familiesBody.families.some((family: { id: number }) => family.id === familyId)).toBe(true);
+  });
+
+  it("renames families for owners and rejects non-owner updates", async () => {
+    // Family profile updates are intentionally owner-only because names are
+    // shared across every member's profile and ledger views.
+    const owner = await registerUser("owner@example.com", "owner");
+    const member = await registerUser("member@example.com", "member");
+
+    const family = expectRecord(
+      await prisma.family.findFirst({ where: { createdBy: owner.user.id } }),
+      "Expected owner registration to create a family",
+    );
+
+    await prisma.familyMember.create({
+      data: {
+        familyId: family.id,
+        userId: member.user.id,
+        memberRole: "MEMBER",
+      },
+    });
+
+    const forbiddenRes = await familyPATCH(
+      new Request(`http://localhost/api/families/${family.id}`, {
+        method: "PATCH",
+        headers: authedHeaders(member.sessionToken, {
+          "content-type": "application/json",
+        }),
+        body: JSON.stringify({ name: "Member Rename" }),
+      }),
+      { params: Promise.resolve({ id: String(family.id) }) },
+    );
+
+    expect(forbiddenRes.status).toBe(403);
+
+    const renameRes = await familyPATCH(
+      new Request(`http://localhost/api/families/${family.id}`, {
+        method: "PATCH",
+        headers: authedHeaders(owner.sessionToken, {
+          "content-type": "application/json",
+        }),
+        body: JSON.stringify({ name: "Renamed Household" }),
+      }),
+      { params: Promise.resolve({ id: String(family.id) }) },
+    );
+
+    expect(renameRes.status).toBe(200);
+    const renameBody = await renameRes.json();
+    expect(renameBody.family.name).toBe("Renamed Household");
+  });
+
+  it("soft-deletes owned families and removes them from active lists", async () => {
+    // Deleting a family keeps history rows intact, but deactivates memberships
+    // so the family no longer appears in normal user-facing queries.
+    const owner = await registerUser("owner@example.com", "owner");
+
+    const family = expectRecord(
+      await prisma.family.findFirst({ where: { createdBy: owner.user.id } }),
+      "Expected owner registration to create a family",
+    );
+
+    const deleteRes = await familyDELETE(
+      new Request(`http://localhost/api/families/${family.id}`, {
+        method: "DELETE",
+        headers: authedHeaders(owner.sessionToken),
+      }),
+      { params: Promise.resolve({ id: String(family.id) }) },
+    );
+
+    expect(deleteRes.status).toBe(200);
+    const deleteBody = await deleteRes.json();
+    expect(deleteBody.family.deletedAt).toBeTruthy();
+
+    const deletedFamily = expectRecord(
+      await prisma.family.findUnique({ where: { id: family.id } }),
+      "Expected soft-deleted family row to remain",
+    );
+    expect(deletedFamily.deletedAt).toBeTruthy();
+
+    const activeMembershipCount = await prisma.familyMember.count({
+      where: {
+        familyId: family.id,
+        isActive: true,
+      },
+    });
+    expect(activeMembershipCount).toBe(0);
+
+    const familiesRes = await familiesGET(
+      new Request("http://localhost/api/families", {
+        method: "GET",
+        headers: authedHeaders(owner.sessionToken),
+      }),
+    );
+    const familiesBody = await familiesRes.json();
+    expect(familiesBody.families).toHaveLength(0);
   });
 
   it("creates, lists, accepts, and rejects family friend requests", async () => {
