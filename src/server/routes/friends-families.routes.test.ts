@@ -10,6 +10,14 @@ import {
   POST as familiesPOST,
 } from "@/app/api/families/route";
 import { POST as familyMembersPOST } from "@/app/api/families/[id]/members/route";
+import { DELETE as familyMemberDELETE } from "@/app/api/families/[id]/members/[memberId]/route";
+import {
+  GET as familyJoinRequestsGET,
+  POST as familyJoinRequestsPOST,
+} from "@/app/api/family-join-requests/route";
+import { POST as acceptFamilyJoinRequestPOST } from "@/app/api/family-join-requests/[id]/accept/route";
+import { POST as rejectFamilyJoinRequestPOST } from "@/app/api/family-join-requests/[id]/reject/route";
+import { POST as cancelFamilyJoinRequestPOST } from "@/app/api/family-join-requests/[id]/cancel/route";
 import {
   GET as familyFriendsGET,
   POST as familyFriendsPOST,
@@ -77,6 +85,7 @@ beforeEach(async () => {
   await prisma.friendGroup.deleteMany();
   await prisma.userFriend.deleteMany();
   await prisma.familyFriend.deleteMany();
+  await prisma.familyJoinRequest.deleteMany();
   await prisma.transaction.deleteMany();
   await prisma.transactionCategory.deleteMany();
   await prisma.familyMember.deleteMany();
@@ -343,5 +352,177 @@ describe("families and shared ledger routes", () => {
     );
 
     expect(rejectRes.status).toBe(200);
+  });
+
+  it("sends, lists, and accepts family join requests", async () => {
+    // Invite flow mirrors a real product flow:
+    // owner invites by email -> invited user sees request -> accepting creates
+    // active FamilyMember access.
+    const owner = await registerUser("owner@example.com", "owner");
+    const invited = await registerUser("invited@example.com", "invited");
+
+    const family = await prisma.family.findFirstOrThrow({
+      where: { createdBy: owner.user.id },
+    });
+
+    const inviteRes = await familyJoinRequestsPOST(
+      new Request("http://localhost/api/family-join-requests", {
+        method: "POST",
+        headers: authedHeaders(owner.sessionToken, {
+          "content-type": "application/json",
+        }),
+        body: JSON.stringify({
+          familyId: family.id,
+          addresseeEmail: invited.user.email,
+        }),
+      }),
+    );
+
+    expect(inviteRes.status).toBe(201);
+    const inviteBody = await inviteRes.json();
+    expect(inviteBody.familyJoinRequest.status).toBe("PENDING");
+
+    const listRes = await familyJoinRequestsGET(
+      new Request("http://localhost/api/family-join-requests", {
+        method: "GET",
+        headers: authedHeaders(invited.sessionToken),
+      }),
+    );
+
+    expect(listRes.status).toBe(200);
+    const listBody = await listRes.json();
+    expect(listBody.familyJoinRequests).toHaveLength(1);
+    expect(listBody.familyJoinRequests[0].direction).toBe("RECEIVED");
+
+    const acceptRes = await acceptFamilyJoinRequestPOST(
+      new Request(
+        `http://localhost/api/family-join-requests/${inviteBody.familyJoinRequest.id}/accept`,
+        {
+          method: "POST",
+          headers: authedHeaders(invited.sessionToken),
+        },
+      ),
+      {
+        params: Promise.resolve({
+          id: String(inviteBody.familyJoinRequest.id),
+        }),
+      },
+    );
+
+    expect(acceptRes.status).toBe(200);
+    const acceptedBody = await acceptRes.json();
+    expect(acceptedBody.familyJoinRequest.status).toBe("ACCEPTED");
+
+    const membership = await prisma.familyMember.findUniqueOrThrow({
+      where: {
+        familyId_userId: {
+          familyId: family.id,
+          userId: invited.user.id,
+        },
+      },
+    });
+    expect(membership.isActive).toBe(true);
+    expect(membership.memberRole).toBe("MEMBER");
+  });
+
+  it("rejects and cancels family join requests", async () => {
+    // Reject is recipient-side; cancel is owner/requester-side. Keeping both
+    // routes tested protects the separate authorization rules.
+    const owner = await registerUser("owner@example.com", "owner");
+    const rejectTarget = await registerUser("reject@example.com", "reject");
+    const cancelTarget = await registerUser("cancel@example.com", "cancel");
+
+    const family = await prisma.family.findFirstOrThrow({
+      where: { createdBy: owner.user.id },
+    });
+
+    const requestToReject = await prisma.familyJoinRequest.create({
+      data: {
+        familyId: family.id,
+        requesterId: owner.user.id,
+        addresseeId: rejectTarget.user.id,
+      },
+    });
+
+    const rejectRes = await rejectFamilyJoinRequestPOST(
+      new Request(
+        `http://localhost/api/family-join-requests/${requestToReject.id}/reject`,
+        {
+          method: "POST",
+          headers: authedHeaders(rejectTarget.sessionToken),
+        },
+      ),
+      { params: Promise.resolve({ id: String(requestToReject.id) }) },
+    );
+
+    expect(rejectRes.status).toBe(200);
+    const rejected = await rejectRes.json();
+    expect(rejected.familyJoinRequest.status).toBe("REJECTED");
+
+    const requestToCancel = await prisma.familyJoinRequest.create({
+      data: {
+        familyId: family.id,
+        requesterId: owner.user.id,
+        addresseeId: cancelTarget.user.id,
+      },
+    });
+
+    const cancelRes = await cancelFamilyJoinRequestPOST(
+      new Request(
+        `http://localhost/api/family-join-requests/${requestToCancel.id}/cancel`,
+        {
+          method: "POST",
+          headers: authedHeaders(owner.sessionToken),
+        },
+      ),
+      { params: Promise.resolve({ id: String(requestToCancel.id) }) },
+    );
+
+    expect(cancelRes.status).toBe(200);
+    const canceled = await cancelRes.json();
+    expect(canceled.familyJoinRequest.status).toBe("CANCELED");
+  });
+
+  it("removes non-owner family members", async () => {
+    // Member removal is a soft delete: the row remains, but isActive=false
+    // means later family-scoped guards will deny access for that user.
+    const owner = await registerUser("owner@example.com", "owner");
+    const member = await registerUser("member@example.com", "member");
+
+    const family = await prisma.family.findFirstOrThrow({
+      where: { createdBy: owner.user.id },
+    });
+
+    const familyMember = await prisma.familyMember.create({
+      data: {
+        familyId: family.id,
+        userId: member.user.id,
+        memberRole: "MEMBER",
+      },
+    });
+
+    const removeRes = await familyMemberDELETE(
+      new Request(
+        `http://localhost/api/families/${family.id}/members/${familyMember.id}`,
+        {
+          method: "DELETE",
+          headers: authedHeaders(owner.sessionToken),
+        },
+      ),
+      {
+        params: Promise.resolve({
+          id: String(family.id),
+          memberId: String(familyMember.id),
+        }),
+      },
+    );
+
+    expect(removeRes.status).toBe(200);
+
+    const removed = await prisma.familyMember.findUniqueOrThrow({
+      where: { id: familyMember.id },
+    });
+    expect(removed.isActive).toBe(false);
+    expect(removed.leftAt).toBeTruthy();
   });
 });
