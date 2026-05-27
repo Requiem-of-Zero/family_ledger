@@ -239,6 +239,8 @@ export default function TransactionsChart({ transactions, typeFilter }: Props) {
             dataKey="date" // Maps to the 'date' property in chartData
             stroke="currentColor"
             className="text-xs text-muted-text"
+            tick={{ fontSize: 11 }}
+            tickMargin={6}
           />
 
           {/* YAxis - Vertical axis showing monetary values */}
