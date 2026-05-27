@@ -110,6 +110,50 @@ export async function createFamilyForUser(userId: number, name: string) {
   });
 }
 
+export async function updateFamilyName(
+  actorUserId: number,
+  familyId: number,
+  name: string,
+) {
+  // Family profile edits are owner-only. The owner guard also rejects
+  // soft-deleted families because it requires an active membership.
+  await requireFamilyOwner(actorUserId, familyId);
+
+  return prisma.family.update({
+    where: { id: familyId },
+    data: { name },
+  });
+}
+
+export async function deleteFamilyForOwner(
+  actorUserId: number,
+  familyId: number,
+) {
+  // Family deletion is intentionally soft. Ledger history can keep pointing at
+  // the family row, while active memberships stop granting access immediately.
+  await requireFamilyOwner(actorUserId, familyId);
+
+  return prisma.$transaction(async (tx) => {
+    const family = await tx.family.update({
+      where: { id: familyId },
+      data: { deletedAt: new Date() },
+    });
+
+    await tx.familyMember.updateMany({
+      where: {
+        familyId,
+        isActive: true,
+      },
+      data: {
+        isActive: false,
+        leftAt: new Date(),
+      },
+    });
+
+    return family;
+  });
+}
+
 export async function addFamilyMemberByEmail(
   actorUserId: number,
   familyId: number,
