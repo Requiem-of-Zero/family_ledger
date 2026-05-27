@@ -3,6 +3,12 @@ import { prisma } from "../db/prisma";
 import { register, login } from "./auth.service";
 import { hashSessionToken } from "../auth/session";
 
+function expectRecord<T>(record: T | null, message: string): T {
+  expect(record, message).not.toBeNull();
+  if (!record) throw new Error(message);
+  return record;
+}
+
 beforeEach(async () => {
   // Clean up the DB between tests
   await prisma.session.deleteMany();
@@ -95,9 +101,12 @@ describe("auth.service", () => {
       where: { tokenHash, revokedAt: null },
       orderBy: { createdAt: "desc" },
     });
+    const session = expectRecord(
+      sessionRow,
+      "Expected login to create an active session",
+    );
 
-    expect(sessionRow).not.toBeNull();
-    expect(sessionRow?.revokedAt).toBeNull();
+    expect(session.revokedAt).toBeNull();
   });
 
   it("login updates lastLogin after registration", async () => {
@@ -107,9 +116,12 @@ describe("auth.service", () => {
       password: "password123",
     });
 
-    const beforeLogin = await prisma.user.findUniqueOrThrow({
-      where: { email: "sam@example.com" },
-    });
+    const beforeLogin = expectRecord(
+      await prisma.user.findUnique({
+        where: { email: "sam@example.com" },
+      }),
+      "Expected registered user before login",
+    );
 
     expect(beforeLogin.lastLogin).toBeInstanceOf(Date);
 
@@ -118,9 +130,12 @@ describe("auth.service", () => {
       password: "password123",
     });
 
-    const afterLogin = await prisma.user.findUniqueOrThrow({
-      where: { email: "sam@example.com" },
-    });
+    const afterLogin = expectRecord(
+      await prisma.user.findUnique({
+        where: { email: "sam@example.com" },
+      }),
+      "Expected registered user after login",
+    );
 
     expect(afterLogin.lastLogin).toBeInstanceOf(Date);
     expect(afterLogin.lastLogin!.getTime()).toBeGreaterThanOrEqual(

@@ -208,11 +208,11 @@ describe("auth routes", () => {
     const setCookie = getSetCookie(logoutRes).toLowerCase();
     expect(setCookie).toContain(`${SESSION_COOKIE_NAME}=`);
     expect(setCookie).toContain("max-age=0");
-    
+
     // Assert the exact session row is now revoked
-    const after = await prisma.session.findFirst({where: {tokenHash}});
+    const after = await prisma.session.findFirst({ where: { tokenHash } });
     expect(after).not.toBeNull();
-    expect(after!.revokedAt).not.toBeNull()
+    expect(after!.revokedAt).not.toBeNull();
   });
 
   it("GET /api/auth/google/callback creates OAuth user and updates lastLogin", async () => {
@@ -264,9 +264,13 @@ describe("auth routes", () => {
     expect(res.status).toBe(307);
     expect(getSetCookie(res)).toContain(`${SESSION_COOKIE_NAME}=`);
 
-    const user = await prisma.user.findUniqueOrThrow({
+    const user = await prisma.user.findUnique({
       where: { email: "google@example.com" },
     });
+
+    if (!user) {
+      throw new Error("No user found");
+    }
 
     expect(user.lastLogin).toBeInstanceOf(Date);
     expect(user.lastLogin!.getTime()).toBeGreaterThanOrEqual(

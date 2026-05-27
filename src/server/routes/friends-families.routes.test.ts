@@ -47,6 +47,12 @@ function authedHeaders(sessionToken: string, extra?: HeadersInit) {
   };
 }
 
+function expectRecord<T>(record: T | null, message: string): T {
+  expect(record, message).not.toBeNull();
+  if (!record) throw new Error(message);
+  return record;
+}
+
 // Registers through the real auth route so these tests exercise session cookies
 // the same way browser requests do.
 async function registerUser(email: string, username: string) {
@@ -151,11 +157,10 @@ describe("friends routes", () => {
     );
 
     expect(deleteRes.status).toBe(200);
-    await expect(
-      prisma.userFriend.findUniqueOrThrow({
-        where: { id: created.friendRequest.id },
-      }),
-    ).rejects.toThrow();
+    const removedFriend = await prisma.userFriend.findUnique({
+      where: { id: created.friendRequest.id },
+    });
+    expect(removedFriend).toBeNull();
   });
 
   it("rejects received requests and cancels sent requests", async () => {
@@ -286,15 +291,22 @@ describe("families and shared ledger routes", () => {
     const otherOwner = await registerUser("other@example.com", "other");
     const thirdOwner = await registerUser("third@example.com", "third");
 
-    const ownerFamily = await prisma.family.findFirstOrThrow({
-      where: { createdBy: owner.user.id },
-    });
-    const otherFamily = await prisma.family.findFirstOrThrow({
-      where: { createdBy: otherOwner.user.id },
-    });
-    const thirdFamily = await prisma.family.findFirstOrThrow({
-      where: { createdBy: thirdOwner.user.id },
-    });
+    const ownerFamily = expectRecord(
+      await prisma.family.findFirst({ where: { createdBy: owner.user.id } }),
+      "Expected owner registration to create a family",
+    );
+    const otherFamily = expectRecord(
+      await prisma.family.findFirst({
+        where: { createdBy: otherOwner.user.id },
+      }),
+      "Expected other owner registration to create a family",
+    );
+    const thirdFamily = expectRecord(
+      await prisma.family.findFirst({
+        where: { createdBy: thirdOwner.user.id },
+      }),
+      "Expected third owner registration to create a family",
+    );
 
     const createRes = await familyFriendsPOST(
       new Request("http://localhost/api/family-friends", {
@@ -361,9 +373,10 @@ describe("families and shared ledger routes", () => {
     const owner = await registerUser("owner@example.com", "owner");
     const invited = await registerUser("invited@example.com", "invited");
 
-    const family = await prisma.family.findFirstOrThrow({
-      where: { createdBy: owner.user.id },
-    });
+    const family = expectRecord(
+      await prisma.family.findFirst({ where: { createdBy: owner.user.id } }),
+      "Expected owner registration to create a family",
+    );
 
     const inviteRes = await familyJoinRequestsPOST(
       new Request("http://localhost/api/family-join-requests", {
@@ -413,7 +426,7 @@ describe("families and shared ledger routes", () => {
     const acceptedBody = await acceptRes.json();
     expect(acceptedBody.familyJoinRequest.status).toBe("ACCEPTED");
 
-    const membership = await prisma.familyMember.findUniqueOrThrow({
+    const membership = await prisma.familyMember.findUnique({
       where: {
         familyId_userId: {
           familyId: family.id,
@@ -421,6 +434,7 @@ describe("families and shared ledger routes", () => {
         },
       },
     });
+    if (!membership) throw new Error("Expected accepted invite to create membership");
     expect(membership.isActive).toBe(true);
     expect(membership.memberRole).toBe("MEMBER");
   });
@@ -432,9 +446,10 @@ describe("families and shared ledger routes", () => {
     const rejectTarget = await registerUser("reject@example.com", "reject");
     const cancelTarget = await registerUser("cancel@example.com", "cancel");
 
-    const family = await prisma.family.findFirstOrThrow({
-      where: { createdBy: owner.user.id },
-    });
+    const family = expectRecord(
+      await prisma.family.findFirst({ where: { createdBy: owner.user.id } }),
+      "Expected owner registration to create a family",
+    );
 
     const requestToReject = await prisma.familyJoinRequest.create({
       data: {
@@ -489,9 +504,10 @@ describe("families and shared ledger routes", () => {
     const owner = await registerUser("owner@example.com", "owner");
     const member = await registerUser("member@example.com", "member");
 
-    const family = await prisma.family.findFirstOrThrow({
-      where: { createdBy: owner.user.id },
-    });
+    const family = expectRecord(
+      await prisma.family.findFirst({ where: { createdBy: owner.user.id } }),
+      "Expected owner registration to create a family",
+    );
 
     const familyMember = await prisma.familyMember.create({
       data: {
@@ -518,10 +534,16 @@ describe("families and shared ledger routes", () => {
     );
 
     expect(removeRes.status).toBe(200);
+    const removeBody = await removeRes.json();
+    expect(removeBody.member.id).toBe(familyMember.id);
+    expect(removeBody.member.isActive).toBe(false);
 
-    const removed = await prisma.familyMember.findUniqueOrThrow({
-      where: { id: familyMember.id },
-    });
+    const removed = expectRecord(
+      await prisma.familyMember.findUnique({
+        where: { id: familyMember.id },
+      }),
+      "Expected soft-removed member row to remain",
+    );
     expect(removed.isActive).toBe(false);
     expect(removed.leftAt).toBeTruthy();
   });
