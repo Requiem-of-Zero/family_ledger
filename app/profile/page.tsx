@@ -5,6 +5,7 @@ import { prisma } from "@/src/server/db/prisma";
 import { createAuthRequest } from "@/src/shared/utils/api";
 import { formatDate } from "@/src/shared/utils/format";
 import ConnectedBankList from "./ConnectedBankList";
+import FamilyManager from "./FamilyManager";
 import FamilyRequestManager from "./FamilyRequestManager";
 import FriendRequestManager from "./FriendRequestManager";
 import ProfileBankConnect from "./ProfileBankConnect";
@@ -319,6 +320,12 @@ export default async function ProfilePage() {
   const canUploadProfilePhoto = !user.oauthAccounts.some(
     (account) => account.provider === "GOOGLE",
   );
+  const familyManagerProps = user.familyMembers.map((membership) => ({
+    id: membership.family.id,
+    name: membership.family.name,
+    memberRole: membership.memberRole,
+    joinedAtLabel: formatDate(membership.joinedAt),
+  }));
 
   return (
     <main className="mx-auto w-full max-w-3xl px-4 py-8">
@@ -392,30 +399,8 @@ export default async function ProfilePage() {
           </dl>
         </div>
 
-        {/* Current family memberships. Mutating membership happens below. */}
-        <div className="rounded-xl border border-border bg-surface-bg p-5">
-          <h2 className="text-lg font-semibold text-primary-text">Families</h2>
-          <div className="mt-4 divide-y divide-border">
-            {user.familyMembers.map((membership) => (
-              <div
-                key={membership.family.id}
-                className="flex items-center justify-between gap-4 py-3 first:pt-0 last:pb-0"
-              >
-                <div>
-                  <div className="font-semibold text-primary-text">
-                    {membership.family.name}
-                  </div>
-                  <div className="mt-1 text-sm text-muted-text">
-                    Joined {formatDate(membership.joinedAt)}
-                  </div>
-                </div>
-                <span className="rounded-xl border border-border px-3 py-1 text-xs font-semibold text-muted-text">
-                  {membership.memberRole}
-                </span>
-              </div>
-            ))}
-          </div>
-        </div>
+        {/* Current family memberships plus owner-only family CRUD. */}
+        <FamilyManager families={familyManagerProps} />
 
         <FamilyRequestManager
           ownedFamilies={ownedFamilies}
