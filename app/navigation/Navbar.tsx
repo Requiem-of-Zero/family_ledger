@@ -3,7 +3,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useTheme } from "../theme/ThemeProvider";
 
 type NavItem = {
@@ -47,10 +47,12 @@ type FamilyFriendNotification = {
 export default function NavBar() {
   const pathname = usePathname();
   const { theme } = useTheme();
+  const notificationMenuRef = useRef<HTMLDivElement | null>(null);
 
   // Current user state
   const [me, setMe] = useState<MeUser | null>(null);
   const [isLoadingMe, setIsLoadingMe] = useState(true);
+  const [isNotificationMenuOpen, setIsNotificationMenuOpen] = useState(false);
   const [notificationCounts, setNotificationCounts] = useState({
     friends: 0,
     families: 0,
@@ -103,6 +105,7 @@ export default function NavBar() {
   useEffect(() => {
     if (!me) {
       setNotificationCounts({ friends: 0, families: 0 });
+      setIsNotificationMenuOpen(false);
       return;
     }
 
@@ -165,11 +168,34 @@ export default function NavBar() {
     };
   }, [me, pathname]);
 
+  useEffect(() => {
+    if (!isNotificationMenuOpen) return;
+
+    function handlePointerDown(event: PointerEvent) {
+      if (
+        notificationMenuRef.current &&
+        !notificationMenuRef.current.contains(event.target as Node)
+      ) {
+        setIsNotificationMenuOpen(false);
+      }
+    }
+
+    document.addEventListener("pointerdown", handlePointerDown);
+
+    return () => {
+      document.removeEventListener("pointerdown", handlePointerDown);
+    };
+  }, [isNotificationMenuOpen]);
+
   return (
     <header className="sticky top-0 z-40 border-b border-border bg-surface-bg/90 backdrop-blur">
       <div className="mx-auto flex w-full max-w-3xl items-center justify-between px-4 py-3">
         {/* Brand */}
-        <Link href={brandHref} className="flex items-center">
+        <Link
+          href={brandHref}
+          aria-label="Family Ledger home"
+          className="flex items-center"
+        >
           <Image
             src={
               theme === "light"
@@ -179,16 +205,19 @@ export default function NavBar() {
             alt="Family Ledger home"
             width={240}
             height={61}
-            className="hidden h-9 w-auto object-contain sm:block"
+            className="hidden h-9 w-auto object-contain md:block"
             priority
           />
-          <Image
-            src="/brand/family-ledger-app-icon.png"
-            alt="Family Ledger home"
-            width={36}
-            height={36}
-            className="h-9 w-9 rounded-xl border border-border object-cover sm:hidden"
-            priority
+          <span
+            aria-hidden="true"
+            className="block h-10 w-10 shrink-0 rounded-lg bg-contain bg-center bg-no-repeat md:hidden"
+            style={{
+              backgroundImage: `url(${
+                theme === "light"
+                  ? "/brand/family-ledger-app-icon-light.png"
+                  : "/brand/family-ledger-app-icon-dark.png"
+              })`,
+            }}
           />
         </Link>
 
@@ -216,11 +245,15 @@ export default function NavBar() {
 
           {/* User Display - Show username or email when logged in */}
           {!isLoadingMe && me && (
-            <div className="group relative">
-              <Link
-                href="/profile#requests"
+            <div ref={notificationMenuRef} className="group relative">
+              <button
+                type="button"
                 aria-label={`${notificationTotal} notifications`}
+                aria-expanded={isNotificationMenuOpen}
                 title="Notifications"
+                onClick={() =>
+                  setIsNotificationMenuOpen((isOpen) => !isOpen)
+                }
                 className="relative grid h-10 w-10 place-items-center rounded-xl border border-border bg-raised-bg text-primary-text hover:border-border-hover"
               >
                 <svg
@@ -241,8 +274,15 @@ export default function NavBar() {
                     {notificationTotal}
                   </span>
                 )}
-              </Link>
-              <div className="absolute right-0 top-full z-50 hidden w-56 pt-2 group-hover:block group-focus-within:block">
+              </button>
+              <div
+                className={[
+                  "absolute right-0 top-full z-50 w-56 pt-2",
+                  isNotificationMenuOpen
+                    ? "block"
+                    : "hidden group-hover:block group-focus-within:block",
+                ].join(" ")}
+              >
                 <div className="rounded-xl border border-border bg-surface-bg p-3 text-sm shadow-lg">
                   <div className="font-semibold text-primary-text">
                     Notifications
@@ -253,6 +293,7 @@ export default function NavBar() {
                   </div>
                   <Link
                     href="/profile#requests"
+                    onClick={() => setIsNotificationMenuOpen(false)}
                     className="mt-3 block rounded-lg border border-border bg-raised-bg px-3 py-2 text-xs font-semibold text-primary-text hover:border-border-hover"
                   >
                     Open profile requests
