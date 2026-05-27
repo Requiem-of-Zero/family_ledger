@@ -10,6 +10,7 @@ beforeEach(async () => {
   await prisma.friendGroup.deleteMany();
   await prisma.userFriend.deleteMany();
   await prisma.familyFriend.deleteMany();
+  await prisma.familyJoinRequest.deleteMany();
   await prisma.transaction.deleteMany();
   await prisma.transactionCategory.deleteMany();
   await prisma.familyMember.deleteMany();
