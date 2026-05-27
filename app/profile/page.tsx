@@ -69,6 +69,9 @@ export default async function ProfilePage() {
         },
         orderBy: { createdAt: "desc" },
       },
+      oauthAccounts: {
+        select: { provider: true },
+      },
     },
   });
 
@@ -219,6 +222,9 @@ export default async function ProfilePage() {
   );
   const notificationCount =
     incomingFriendRequests.length + incomingFamilyFriendRequests.length;
+  const canUploadProfilePhoto = !user.oauthAccounts.some(
+    (account) => account.provider === "GOOGLE",
+  );
 
   return (
     <main className="mx-auto w-full max-w-3xl px-4 py-8">
@@ -229,6 +235,7 @@ export default async function ProfilePage() {
               imageUrl={user.profileImageUrl}
               username={user.username}
               email={user.email}
+              canUpload={canUploadProfilePhoto}
             />
             <div>
               <p className="text-sm font-semibold text-primary">Profile</p>

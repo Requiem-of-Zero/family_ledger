@@ -10,10 +10,12 @@ export default function ProfilePhotoUploader({
   imageUrl,
   username,
   email,
+  canUpload,
 }: {
   imageUrl: string | null;
   username: string;
   email: string;
+  canUpload: boolean;
 }) {
   const router = useRouter();
   const [previewUrl, setPreviewUrl] = useState(imageUrl);
@@ -22,12 +24,18 @@ export default function ProfilePhotoUploader({
   const [isPending, startTransition] = useTransition();
   const initials = getInitials(username || email);
   const busy = isUploading || isPending;
+  const uploadDisabled = busy || !canUpload;
 
   async function handlePhotoChange(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
     event.target.value = "";
 
     if (!file) return;
+
+    if (!canUpload) {
+      setMessage("Google users manage their profile photo in Google.");
+      return;
+    }
 
     setMessage(null);
 
@@ -90,7 +98,19 @@ export default function ProfilePhotoUploader({
 
   return (
     <div className="flex items-center gap-4">
-      <label className="group relative grid h-16 w-16 shrink-0 cursor-pointer place-items-center overflow-hidden rounded-full border border-border bg-raised-bg text-lg font-semibold text-primary-text transition hover:border-border-hover">
+      <label
+        title={
+          canUpload
+            ? "Update profile photo"
+            : "Google users manage their profile photo in Google"
+        }
+        className={[
+          "group relative grid h-16 w-16 shrink-0 place-items-center overflow-hidden rounded-full border border-border bg-raised-bg text-lg font-semibold text-primary-text transition",
+          canUpload
+            ? "cursor-pointer hover:border-border-hover"
+            : "cursor-default",
+        ].join(" ")}
+      >
         {previewUrl ? (
           <img
             src={previewUrl}
@@ -101,17 +121,24 @@ export default function ProfilePhotoUploader({
         ) : (
           initials
         )}
-        <span className="absolute inset-0 grid place-items-center bg-black/0 text-white opacity-0 shadow-inner transition group-hover:bg-black/35 group-hover:opacity-100 group-focus-within:bg-black/35 group-focus-within:opacity-100">
-          {busy ? (
-            <span className="h-5 w-5 animate-spin rounded-full border-2 border-white/40 border-t-white" />
-          ) : (
-            <PencilIcon />
+        {canUpload && (
+          <span className="absolute inset-0 grid place-items-center bg-black/0 text-white opacity-0 shadow-inner transition group-hover:bg-black/35 group-hover:opacity-100 group-focus-within:bg-black/35 group-focus-within:opacity-100">
+            {busy ? (
+              <span className="h-5 w-5 animate-spin rounded-full border-2 border-white/40 border-t-white" />
+            ) : (
+              <PencilIcon />
+            )}
+          </span>
+        )}
+        {!canUpload && (
+          <span className="absolute inset-x-0 bottom-0 bg-black/50 px-1 py-0.5 text-center text-[9px] font-semibold text-white opacity-0 transition group-hover:opacity-100 group-focus-within:opacity-100">
+            Google
+          </span>
           )}
-        </span>
         <input
           type="file"
           accept="image/jpeg,image/png,image/webp"
-          disabled={busy}
+          disabled={uploadDisabled}
           onChange={handlePhotoChange}
           className="sr-only"
         />

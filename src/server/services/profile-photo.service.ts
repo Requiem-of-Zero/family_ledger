@@ -49,6 +49,8 @@ export async function createProfilePhotoUploadUrl({
   contentType: string;
   sizeBytes: number;
 }) {
+  await assertCanManageProfilePhoto(userId);
+
   const allowedContentType = assertAllowedProfilePhoto(contentType, sizeBytes);
   const { region, bucket, publicBaseUrl } = getS3Config();
   const extension = ALLOWED_CONTENT_TYPES[allowedContentType];
@@ -72,6 +74,8 @@ export async function createProfilePhotoUploadUrl({
 }
 
 export async function updateProfilePhotoUrl(userId: number, profileImageUrl: string) {
+  await assertCanManageProfilePhoto(userId);
+
   const { region, bucket, publicBaseUrl } = getS3Config();
   const allowedPrefix = `${publicBaseUrl}/profile-photos/${userId}/`;
 
@@ -134,4 +138,18 @@ function getOwnedProfilePhotoKey(
   if (!profileImageUrl?.startsWith(allowedPrefix)) return null;
 
   return profileImageUrl.slice(allowedPrefix.indexOf("profile-photos/"));
+}
+
+async function assertCanManageProfilePhoto(userId: number) {
+  const googleAccount = await prisma.oAuthAccount.findFirst({
+    where: {
+      userId,
+      provider: "GOOGLE",
+    },
+    select: { id: true },
+  });
+
+  if (googleAccount) {
+    throw new HttpError("Google users manage their profile photo in Google", 403);
+  }
 }
