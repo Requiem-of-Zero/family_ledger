@@ -5,12 +5,16 @@ import { prisma } from "@/src/server/db/prisma";
 import { createAuthRequest } from "@/src/shared/utils/api";
 import { formatDate } from "@/src/shared/utils/format";
 import ConnectedBankList from "./ConnectedBankList";
+import FamilyRequestManager from "./FamilyRequestManager";
 import FriendRequestManager from "./FriendRequestManager";
 import ProfileBankConnect from "./ProfileBankConnect";
 import ProfileLogoutButton from "./ProfileLogoutButton";
 import ProfilePhotoUploader from "./ProfilePhotoUploader";
 
 export default async function ProfilePage() {
+  // ---------------------------------------------------------------------------
+  // Auth Gate
+  // ---------------------------------------------------------------------------
   // Server pages do not receive the browser Request object directly, so we
   // rebuild a small auth request from the incoming cookies.
   const cookieStore = await cookies();
@@ -20,6 +24,9 @@ export default async function ProfilePage() {
   // This page should only show private account and bank data to logged-in users.
   if (!sessionUser) redirect("/login");
 
+  // ---------------------------------------------------------------------------
+  // Account Snapshot
+  // ---------------------------------------------------------------------------
   // Fetch only the fields needed by the profile UI. Sensitive Plaid values,
   // especially access tokens, are intentionally left out of this select.
   const user = await prisma.user.findUnique({
@@ -77,9 +84,16 @@ export default async function ProfilePage() {
 
   if (!user) redirect("/login");
 
+  // ---------------------------------------------------------------------------
+  // Social And Family Data
+  // ---------------------------------------------------------------------------
   // Social data is fetched separately from the account query so the profile page
   // can keep account/banking fields narrow while still showing relationship data.
-  const [friendRelationships, familyFriendRelationships] = await Promise.all([
+  const [
+    friendRelationships,
+    familyFriendRelationships,
+    familyJoinRequests,
+  ] = await Promise.all([
     prisma.userFriend.findMany({
       where: {
         OR: [{ requesterId: user.id }, { addresseeId: user.id }],
@@ -119,8 +133,41 @@ export default async function ProfilePage() {
       },
       orderBy: [{ status: "asc" }, { createdAt: "desc" }],
     }),
+    prisma.familyJoinRequest.findMany({
+      where: {
+        OR: [
+          { addresseeId: user.id },
+          {
+            family: {
+              members: {
+                some: {
+                  userId: user.id,
+                  isActive: true,
+                  memberRole: "OWNER",
+                },
+              },
+            },
+          },
+        ],
+      },
+      include: {
+        family: {
+          select: { id: true, name: true },
+        },
+        requester: {
+          select: { id: true, email: true, username: true },
+        },
+        addressee: {
+          select: { id: true, email: true, username: true },
+        },
+      },
+      orderBy: [{ status: "asc" }, { createdAt: "desc" }],
+    }),
   ]);
 
+  // ---------------------------------------------------------------------------
+  // Banking Display Data
+  // ---------------------------------------------------------------------------
   const accountCount = user.plaidItems.reduce(
     (count, item) => count + item.accounts.length,
     0,
@@ -138,6 +185,9 @@ export default async function ProfilePage() {
     })),
   }));
 
+  // ---------------------------------------------------------------------------
+  // Friend Request Display Data
+  // ---------------------------------------------------------------------------
   // Normalize user-friend rows into the current user's perspective. This lets
   // the UI say "incoming", "outgoing", and "friend" without repeating relation
   // direction checks throughout the JSX.
@@ -210,6 +260,9 @@ export default async function ProfilePage() {
     })),
   };
 
+  // ---------------------------------------------------------------------------
+  // Family Request Display Data
+  // ---------------------------------------------------------------------------
   // Family-friend rows are visible through all families the user belongs to.
   // This set lets us determine which pending requests are incoming to the user.
   const familyIds = new Set(
@@ -220,14 +273,56 @@ export default async function ProfilePage() {
       relationship.status === "PENDING" &&
       familyIds.has(relationship.addresseeFamilyId),
   );
+  const ownedFamilies = user.familyMembers
+    .filter((membership) => membership.memberRole === "OWNER")
+    .map((membership) => ({
+      id: membership.family.id,
+      name: membership.family.name,
+    }));
+  // Family join requests are normalized separately from family friends because
+  // they create user membership, not a relationship between two families.
+  const normalizedFamilyJoinRequests = familyJoinRequests.map((request) => {
+    const direction: "RECEIVED" | "SENT" =
+      request.addresseeId === user.id ? "RECEIVED" : "SENT";
+    const title =
+      direction === "RECEIVED"
+        ? `Invited by ${request.requester.username}`
+        : `Invite to ${request.addressee.username}`;
+
+    return {
+      id: request.id,
+      status: request.status,
+      direction,
+      familyName: request.family.name,
+      title,
+      subtitle:
+        direction === "RECEIVED"
+          ? request.requester.email
+          : request.addressee.email,
+      meta: `Requested ${formatDate(request.createdAt)}`,
+    };
+  });
+  const incomingFamilyJoinRequests = normalizedFamilyJoinRequests.filter(
+    (request) =>
+      request.status === "PENDING" && request.direction === "RECEIVED",
+  );
+  const outgoingFamilyJoinRequests = normalizedFamilyJoinRequests.filter(
+    (request) => request.status === "PENDING" && request.direction === "SENT",
+  );
+  const completedFamilyJoinRequests = normalizedFamilyJoinRequests.filter(
+    (request) => request.status !== "PENDING",
+  );
   const notificationCount =
-    incomingFriendRequests.length + incomingFamilyFriendRequests.length;
+    incomingFriendRequests.length +
+    incomingFamilyFriendRequests.length +
+    incomingFamilyJoinRequests.length;
   const canUploadProfilePhoto = !user.oauthAccounts.some(
     (account) => account.provider === "GOOGLE",
   );
 
   return (
     <main className="mx-auto w-full max-w-3xl px-4 py-8">
+      {/* Profile header and notification summary. */}
       <section className="mb-8 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <div className="flex items-center gap-4">
@@ -264,6 +359,7 @@ export default async function ProfilePage() {
         </div>
       </section>
 
+      {/* Quick stats for the main profile areas. */}
       <section className="grid gap-4 sm:grid-cols-4">
         <SummaryTile label="Families" value={user.familyMembers.length} />
         <SummaryTile label="Friends" value={acceptedFriends.length} />
@@ -272,6 +368,7 @@ export default async function ProfilePage() {
       </section>
 
       <section className="mt-8 grid gap-6">
+        {/* Account basics and sign out action. */}
         <div className="rounded-xl border border-border bg-surface-bg p-5">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <h2 className="text-lg font-semibold text-primary-text">
@@ -295,6 +392,7 @@ export default async function ProfilePage() {
           </dl>
         </div>
 
+        {/* Current family memberships. Mutating membership happens below. */}
         <div className="rounded-xl border border-border bg-surface-bg p-5">
           <h2 className="text-lg font-semibold text-primary-text">Families</h2>
           <div className="mt-4 divide-y divide-border">
@@ -319,8 +417,17 @@ export default async function ProfilePage() {
           </div>
         </div>
 
+        <FamilyRequestManager
+          ownedFamilies={ownedFamilies}
+          incomingRequests={incomingFamilyJoinRequests}
+          outgoingRequests={outgoingFamilyJoinRequests}
+          completedRequests={completedFamilyJoinRequests}
+        />
+
+        {/* User-to-user friend requests and accepted friends. */}
         <FriendRequestManager {...friendManagerProps} />
 
+        {/* Family-to-family relationships for future shared household features. */}
         <div className="rounded-xl border border-border bg-surface-bg p-5">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
@@ -377,6 +484,7 @@ export default async function ProfilePage() {
           </div>
         </div>
 
+        {/* Bank connection status and connected Plaid accounts. */}
         <div className="rounded-xl border border-border bg-surface-bg p-5">
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
