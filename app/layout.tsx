@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import NavBar from "./navigation/Navbar";
+import NavigationProgress from "./navigation/NavigationProgress";
 import { ThemeProvider } from "./theme/ThemeProvider";
 import ThemeToggle from "./theme/ThemeToggle";
 
@@ -34,6 +35,8 @@ export default function RootLayout({
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
         <ThemeProvider>
+          {/* Mounted once so every internal navigation can show one loading cue. */}
+          <NavigationProgress />
           <NavBar />
           {children}
           <ThemeToggle />

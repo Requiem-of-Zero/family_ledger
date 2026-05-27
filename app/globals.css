@@ -85,3 +85,29 @@ body {
   background: var(--color-primary-bg);
   color: var(--color-primary-text);
 }
+
+/* Branded loading mark used by route transitions and loading fallbacks. */
+@keyframes family-ledger-loading-mark {
+  0%,
+  100% {
+    opacity: 0.62;
+    transform: translateY(1px) scale(0.94);
+  }
+  50% {
+    opacity: 1;
+    transform: translateY(-1px) scale(1);
+  }
+}
+
+.family-ledger-loading-mark {
+  animation: family-ledger-loading-mark 1.05s ease-in-out infinite;
+  /* Mask lets the logo inherit current theme colors while staying transparent. */
+  mask-image: url("/brand/family-ledger-app-icon-dark.png");
+  mask-position: center;
+  mask-repeat: no-repeat;
+  mask-size: contain;
+  -webkit-mask-image: url("/brand/family-ledger-app-icon-dark.png");
+  -webkit-mask-position: center;
+  -webkit-mask-repeat: no-repeat;
+  -webkit-mask-size: contain;
+}
