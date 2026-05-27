@@ -713,8 +713,8 @@ export default function TransactionsClient() {
             </div>
 
             {/* Custom Date Range Inputs - Manual date selection */}
-            <div className="flex gap-3">
-              <div className="flex-1">
+            <div className="grid gap-2 sm:grid-cols-2 sm:gap-3">
+              <div className="min-w-0">
                 <label className="mb-1 block text-xs font-medium text-muted-text">
                   From
                 </label>
@@ -725,10 +725,10 @@ export default function TransactionsClient() {
                     setFromDate(e.target.value); // Update local state
                     updateDatesInUrl(e.target.value, toDate); // Sync to URL
                   }}
-                  className="w-full rounded-xl border border-border bg-raised-bg px-3 py-2 text-sm outline-none focus:border-border-hover"
+                  className="min-h-10 w-full min-w-0 rounded-xl border border-border bg-raised-bg px-2.5 py-1.5 text-xs outline-none focus:border-border-hover sm:px-3 sm:py-2 sm:text-sm"
                 />
               </div>
-              <div className="flex-1">
+              <div className="min-w-0">
                 <label className="mb-1 block text-xs font-medium text-muted-text">
                   To
                 </label>
@@ -739,7 +739,7 @@ export default function TransactionsClient() {
                     setToDate(e.target.value); // Update local state
                     updateDatesInUrl(fromDate, e.target.value); // Sync to URL
                   }}
-                  className="w-full rounded-xl border border-border bg-raised-bg px-3 py-2 text-sm outline-none focus:border-border-hover"
+                  className="min-h-10 w-full min-w-0 rounded-xl border border-border bg-raised-bg px-2.5 py-1.5 text-xs outline-none focus:border-border-hover sm:px-3 sm:py-2 sm:text-sm"
                 />
               </div>
             </div>
