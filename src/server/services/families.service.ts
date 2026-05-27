@@ -152,6 +152,287 @@ export async function addFamilyMemberByEmail(
   });
 }
 
+export async function sendFamilyJoinRequest(
+  actorUserId: number,
+  familyId: number,
+  addresseeEmail: string,
+) {
+  // Owners invite users into a family. The invited user is not a member until
+  // they accept, which prevents silent membership changes from another account.
+  await requireFamilyOwner(actorUserId, familyId);
+
+  const addressee = await prisma.user.findUnique({
+    where: { email: addresseeEmail },
+    select: FamilyUserSelect,
+  });
+
+  if (!addressee) {
+    throw new HttpError("User not found", 404);
+  }
+
+  const existingMembership = await prisma.familyMember.findUnique({
+    where: {
+      familyId_userId: {
+        familyId,
+        userId: addressee.id,
+      },
+    },
+    select: { isActive: true },
+  });
+
+  if (existingMembership?.isActive) {
+    throw new HttpError("User is already an active family member", 409);
+  }
+
+  const existingRequest = await prisma.familyJoinRequest.findUnique({
+    where: {
+      familyId_addresseeId: {
+        familyId,
+        addresseeId: addressee.id,
+      },
+    },
+  });
+
+  if (existingRequest?.status === "PENDING") {
+    throw new HttpError("Family join request already exists", 409);
+  }
+
+  return prisma.familyJoinRequest.upsert({
+    where: {
+      familyId_addresseeId: {
+        familyId,
+        addresseeId: addressee.id,
+      },
+    },
+    update: {
+      requesterId: actorUserId,
+      status: "PENDING",
+      acceptedAt: null,
+    },
+    create: {
+      familyId,
+      requesterId: actorUserId,
+      addresseeId: addressee.id,
+    },
+    include: {
+      family: true,
+      requester: { select: FamilyUserSelect },
+      addressee: { select: FamilyUserSelect },
+    },
+  });
+}
+
+export async function listFamilyJoinRequestsForUser(userId: number) {
+  // A user can see requests sent to them, plus requests for families they own.
+  // That gives owners an outgoing invitation list without exposing other
+  // families' invite activity.
+  const ownedFamilyIds = await prisma.familyMember
+    .findMany({
+      where: {
+        userId,
+        isActive: true,
+        memberRole: "OWNER",
+        family: { deletedAt: null },
+      },
+      select: { familyId: true },
+    })
+    .then((memberships) =>
+      memberships.map((membership) => membership.familyId),
+    );
+
+  const requests = await prisma.familyJoinRequest.findMany({
+    where: {
+      OR: [
+        { addresseeId: userId },
+        { familyId: { in: ownedFamilyIds } },
+      ],
+    },
+    include: {
+      family: true,
+      requester: { select: FamilyUserSelect },
+      addressee: { select: FamilyUserSelect },
+    },
+    orderBy: [{ status: "asc" }, { createdAt: "desc" }],
+  });
+
+  return requests.map((request) => ({
+    ...request,
+    direction: request.addresseeId === userId ? "RECEIVED" : "SENT",
+  }));
+}
+
+export async function acceptFamilyJoinRequest(
+  actorUserId: number,
+  familyJoinRequestId: number,
+) {
+  // Only the invited user can accept. Accepting creates/reactivates the
+  // FamilyMember row inside the same transaction as the request update.
+  const request = await prisma.familyJoinRequest.findUnique({
+    where: { id: familyJoinRequestId },
+    select: {
+      id: true,
+      familyId: true,
+      addresseeId: true,
+      status: true,
+    },
+  });
+
+  if (!request) {
+    throw new HttpError("Family join request not found", 404);
+  }
+
+  if (request.addresseeId !== actorUserId) {
+    throw new HttpError("Only the invited user can accept this request", 403);
+  }
+
+  if (request.status !== "PENDING") {
+    throw new HttpError("Family join request is not pending", 409);
+  }
+
+  return prisma.$transaction(async (tx) => {
+    await tx.familyMember.upsert({
+      where: {
+        familyId_userId: {
+          familyId: request.familyId,
+          userId: actorUserId,
+        },
+      },
+      update: {
+        isActive: true,
+        leftAt: null,
+        memberRole: "MEMBER",
+      },
+      create: {
+        familyId: request.familyId,
+        userId: actorUserId,
+        memberRole: "MEMBER",
+      },
+    });
+
+    return tx.familyJoinRequest.update({
+      where: { id: request.id },
+      data: {
+        status: "ACCEPTED",
+        acceptedAt: new Date(),
+      },
+      include: {
+        family: true,
+        requester: { select: FamilyUserSelect },
+        addressee: { select: FamilyUserSelect },
+      },
+    });
+  });
+}
+
+export async function rejectFamilyJoinRequest(
+  actorUserId: number,
+  familyJoinRequestId: number,
+) {
+  // Rejection is recipient-only and keeps the row as REJECTED, so owners can
+  // understand why an invitation disappeared from the pending list.
+  const request = await prisma.familyJoinRequest.findUnique({
+    where: { id: familyJoinRequestId },
+    select: {
+      id: true,
+      addresseeId: true,
+      status: true,
+    },
+  });
+
+  if (!request) {
+    throw new HttpError("Family join request not found", 404);
+  }
+
+  if (request.addresseeId !== actorUserId) {
+    throw new HttpError("Only the invited user can reject this request", 403);
+  }
+
+  if (request.status !== "PENDING") {
+    throw new HttpError("Family join request is not pending", 409);
+  }
+
+  return prisma.familyJoinRequest.update({
+    where: { id: request.id },
+    data: { status: "REJECTED" },
+  });
+}
+
+export async function cancelFamilyJoinRequest(
+  actorUserId: number,
+  familyJoinRequestId: number,
+) {
+  // The original requester or any current owner of that family can cancel a
+  // pending invite. This covers "undo my invite" and owner cleanup workflows.
+  const request = await prisma.familyJoinRequest.findUnique({
+    where: { id: familyJoinRequestId },
+    select: {
+      id: true,
+      familyId: true,
+      requesterId: true,
+      status: true,
+    },
+  });
+
+  if (!request) {
+    throw new HttpError("Family join request not found", 404);
+  }
+
+  if (request.requesterId !== actorUserId) {
+    await requireFamilyOwner(actorUserId, request.familyId);
+  }
+
+  if (request.status !== "PENDING") {
+    throw new HttpError("Family join request is not pending", 409);
+  }
+
+  return prisma.familyJoinRequest.update({
+    where: { id: request.id },
+    data: { status: "CANCELED" },
+  });
+}
+
+export async function removeFamilyMember(
+  actorUserId: number,
+  familyId: number,
+  familyMemberId: number,
+) {
+  // Removing a member is a soft remove. The historical FamilyMember row remains
+  // available for audit/history, but it no longer grants family access.
+  await requireFamilyOwner(actorUserId, familyId);
+
+  const member = await prisma.familyMember.findFirst({
+    where: {
+      id: familyMemberId,
+      familyId,
+      isActive: true,
+    },
+    select: {
+      id: true,
+      userId: true,
+      memberRole: true,
+    },
+  });
+
+  if (!member) {
+    throw new HttpError("Family member not found", 404);
+  }
+
+  if (member.memberRole === "OWNER") {
+    throw new HttpError("Owner removal is not supported yet", 409);
+  }
+
+  return prisma.familyMember.update({
+    where: { id: member.id },
+    data: {
+      isActive: false,
+      leftAt: new Date(),
+    },
+    include: {
+      user: { select: FamilyUserSelect },
+    },
+  });
+}
+
 export async function sendFamilyFriendRequest(
   actorUserId: number,
   requesterFamilyId: number,
