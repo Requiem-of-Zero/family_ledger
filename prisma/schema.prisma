@@ -34,6 +34,8 @@ model User {
   deletedAt          DateTime?           @db.Timestamptz(3)
   createdFamilies    Family[]            @relation("FamilyCreatedBy")
   familyMembers      FamilyMember[]
+  sentFamilyJoinRequests     FamilyJoinRequest[] @relation("FamilyJoinRequester")
+  receivedFamilyJoinRequests FamilyJoinRequest[] @relation("FamilyJoinAddressee")
   oauthAccounts      OAuthAccount[]
   plaidItems         PlaidItem[]
   sessions           Session[]
@@ -82,6 +84,7 @@ model Family {
   deletedAt             DateTime?             @db.Timestamptz(3)
   creator               User                  @relation("FamilyCreatedBy", fields: [createdBy], references: [id])
   members               FamilyMember[]
+  joinRequests          FamilyJoinRequest[]
   transactions          Transaction[]
   transactionCategories TransactionCategory[]
   sentFamilyFriendRequests     FamilyFriend[] @relation("FamilyFriendRequester")
@@ -101,6 +104,27 @@ model FamilyMember {
 
   @@unique([familyId, userId])
   @@index([familyId])
+}
+
+// FamilyJoinRequest stores pending invitations before a user becomes an active
+// FamilyMember. Keeping this separate from FamilyMember makes it clear that an
+// invitation is not membership until the invited user accepts.
+model FamilyJoinRequest {
+  id          Int                     @id @default(autoincrement())
+  familyId    Int
+  requesterId Int
+  addresseeId Int
+  status      FamilyJoinRequestStatus @default(PENDING)
+  createdAt   DateTime                @default(now()) @db.Timestamptz(3)
+  acceptedAt  DateTime?               @db.Timestamptz(3)
+
+  family    Family @relation(fields: [familyId], references: [id], onDelete: Cascade)
+  requester User   @relation("FamilyJoinRequester", fields: [requesterId], references: [id], onDelete: Cascade)
+  addressee User   @relation("FamilyJoinAddressee", fields: [addresseeId], references: [id], onDelete: Cascade)
+
+  @@unique([familyId, addresseeId])
+  @@index([requesterId])
+  @@index([addresseeId])
 }
 
 // =============================================================================
@@ -270,4 +294,11 @@ enum FriendStatus {
   PENDING
   ACCEPTED
   BLOCKED
+}
+
+enum FamilyJoinRequestStatus {
+  PENDING
+  ACCEPTED
+  REJECTED
+  CANCELED
 }
