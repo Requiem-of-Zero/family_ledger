@@ -90,6 +90,7 @@ async function registerUser(email: string, username: string) {
   return { user: body.user, sessionToken };
 }
 
+// Test setup: start each route test from an empty social/family graph.
 beforeEach(async () => {
   // Clear newest relationship tables first, then parents. This keeps foreign
   // keys happy as new family/friend models are added.
@@ -107,7 +108,9 @@ beforeEach(async () => {
   await prisma.user.deleteMany();
 });
 
+// User-friend API coverage: direct relationships between individual users.
 describe("friends routes", () => {
+  // Verifies the full happy path from request creation through accepted removal.
   it("creates, lists, accepts, and removes friend relationships", async () => {
     // Happy path for the user-friend lifecycle:
     // sender creates -> recipient lists -> recipient accepts -> either side removes.
@@ -170,6 +173,7 @@ describe("friends routes", () => {
     expect(removedFriend).toBeNull();
   });
 
+  // Verifies pending-request state transitions for both recipient and sender.
   it("rejects received requests and cancels sent requests", async () => {
     // Reject and cancel are intentionally separate operations because the
     // authorization rule depends on whether the user received or sent the row.
@@ -216,7 +220,10 @@ describe("friends routes", () => {
   });
 });
 
+// Family API coverage: memberships, shared ledger access, family invites, and
+// family-to-family social relationships.
 describe("families and shared ledger routes", () => {
+  // Verifies default registration families can share transactions with members.
   it("uses default families, adds members, and shows shared family transactions", async () => {
     // This protects the shared ledger behavior: a family transaction created by
     // one member should be visible to another active member of that family.
@@ -283,6 +290,7 @@ describe("families and shared ledger routes", () => {
     expect(familiesBody.families.some((family: { id: number }) => family.id === familyId)).toBe(true);
   });
 
+  // Verifies the single-active-owned-family rule and recreation after deletion.
   it("prevents multiple active owned families", async () => {
     // Registration creates the first owned family. A user can create another
     // only after their current owned family is soft-deleted.
@@ -330,6 +338,7 @@ describe("families and shared ledger routes", () => {
     expect(createBody.family.name).toBe("New Household");
   });
 
+  // Verifies only family owners can change shared family profile settings.
   it("renames families for owners and rejects non-owner updates", async () => {
     // Family profile updates are intentionally owner-only because names are
     // shared across every member's profile and ledger views.
@@ -378,6 +387,7 @@ describe("families and shared ledger routes", () => {
     expect(renameBody.family.name).toBe("Renamed Household");
   });
 
+  // Verifies family deletion is soft and removes access from active lists.
   it("soft-deletes owned families and removes them from active lists", async () => {
     // Deleting a family keeps history rows intact, but deactivates memberships
     // so the family no longer appears in normal user-facing queries.
@@ -424,6 +434,7 @@ describe("families and shared ledger routes", () => {
     expect(familiesBody.families).toHaveLength(0);
   });
 
+  // Verifies owner-mediated family-friend request creation, acceptance, and rejection.
   it("creates, lists, accepts, and rejects family friend requests", async () => {
     // Family-friend requests are owner-mediated on both sides. This test covers
     // request creation by one owner and accept/reject by receiving owners.
@@ -506,6 +517,7 @@ describe("families and shared ledger routes", () => {
     expect(rejectRes.status).toBe(200);
   });
 
+  // Verifies co-owners can manage family-friend requests without full ownership.
   it("allows co-owners to send, accept, and reject family friend requests", async () => {
     // Co-owners are allowed to manage family-to-family social requests without
     // granting them destructive owner-only powers like deleting the family.
@@ -595,6 +607,7 @@ describe("families and shared ledger routes", () => {
     expect(rejectRes.status).toBe(200);
   });
 
+  // Verifies family-friend cleanup actions after pending or active relationships.
   it("cancels, blocks, and removes family friend relationships", async () => {
     // These actions round out family-friend management for the later family
     // detail page: cancel outgoing, block active, and remove blocked/accepted.
@@ -675,6 +688,7 @@ describe("families and shared ledger routes", () => {
     ).toBeNull();
   });
 
+  // Verifies user invitations into a family create membership only after accept.
   it("sends, lists, and accepts family join requests", async () => {
     // Invite flow mirrors a real product flow:
     // owner invites by email -> invited user sees request -> accepting creates
@@ -748,6 +762,7 @@ describe("families and shared ledger routes", () => {
     expect(membership.memberRole).toBe("MEMBER");
   });
 
+  // Verifies family join requests support both recipient rejection and owner cancel.
   it("rejects and cancels family join requests", async () => {
     // Reject is recipient-side; cancel is owner/requester-side. Keeping both
     // routes tested protects the separate authorization rules.
@@ -807,6 +822,7 @@ describe("families and shared ledger routes", () => {
     expect(canceled.familyJoinRequest.status).toBe("CANCELED");
   });
 
+  // Verifies removing a member preserves history while revoking active access.
   it("removes non-owner family members", async () => {
     // Member removal is a soft delete: the row remains, but isActive=false
     // means later family-scoped guards will deny access for that user.
