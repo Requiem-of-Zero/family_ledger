@@ -642,7 +642,7 @@ export async function rejectFamilyFriendRequest(
     throw new HttpError("Family friend request not found", 404);
   }
 
-  await requireFamilyOwner(actorUserId, familyFriend.addresseeFamilyId);
+  await requireFamilyManager(actorUserId, familyFriend.addresseeFamilyId);
 
   if (familyFriend.status !== "PENDING") {
     throw new HttpError("Family friend request is not pending", 409);
@@ -653,4 +653,123 @@ export async function rejectFamilyFriendRequest(
   });
 
   return { rejectedFamilyFriendRequestId: familyFriend.id };
+}
+
+export async function cancelFamilyFriendRequest(
+  actorUserId: number,
+  familyFriendId: number,
+) {
+  // Cancel is requester-side cleanup for pending family-friend requests.
+  const familyFriend = await prisma.familyFriend.findUnique({
+    where: { id: familyFriendId },
+    select: {
+      id: true,
+      requesterFamilyId: true,
+      status: true,
+    },
+  });
+
+  if (!familyFriend) {
+    throw new HttpError("Family friend request not found", 404);
+  }
+
+  await requireFamilyManager(actorUserId, familyFriend.requesterFamilyId);
+
+  if (familyFriend.status !== "PENDING") {
+    throw new HttpError("Family friend request is not pending", 409);
+  }
+
+  await prisma.familyFriend.delete({
+    where: { id: familyFriend.id },
+  });
+
+  return { canceledFamilyFriendRequestId: familyFriend.id };
+}
+
+export async function blockFamilyFriendRelationship(
+  actorUserId: number,
+  familyFriendId: number,
+) {
+  // Blocking can be done by an owner on either side of the relationship.
+  const familyFriend = await requireOwnedFamilyFriend(
+    actorUserId,
+    familyFriendId,
+  );
+
+  return prisma.familyFriend.update({
+    where: { id: familyFriend.id },
+    data: {
+      status: "BLOCKED",
+      acceptedAt: null,
+    },
+    include: {
+      requesterFamily: true,
+      addresseeFamily: true,
+    },
+  });
+}
+
+export async function removeFamilyFriendRelationship(
+  actorUserId: number,
+  familyFriendId: number,
+) {
+  // Remove deletes the family-friend row when either side no longer wants the
+  // relationship visible. Pending rows should use reject/cancel instead.
+  const familyFriend = await requireOwnedFamilyFriend(
+    actorUserId,
+    familyFriendId,
+  );
+
+  if (familyFriend.status === "PENDING") {
+    throw new HttpError(
+      "Pending family friend requests must be canceled or rejected",
+      409,
+    );
+  }
+
+  await prisma.familyFriend.delete({
+    where: { id: familyFriend.id },
+  });
+
+  return { removedFamilyFriendId: familyFriend.id };
+}
+
+async function requireOwnedFamilyFriend(
+  actorUserId: number,
+  familyFriendId: number,
+) {
+  const familyFriend = await prisma.familyFriend.findUnique({
+    where: { id: familyFriendId },
+    select: {
+      id: true,
+      requesterFamilyId: true,
+      addresseeFamilyId: true,
+      status: true,
+    },
+  });
+
+  if (!familyFriend) {
+    throw new HttpError("Family friend relationship not found", 404);
+  }
+
+  const managerMembership = await prisma.familyMember.findFirst({
+    where: {
+      userId: actorUserId,
+      memberRole: { in: ["OWNER", "CO_OWNER"] },
+      isActive: true,
+      familyId: {
+        in: [familyFriend.requesterFamilyId, familyFriend.addresseeFamilyId],
+      },
+      family: { deletedAt: null },
+    },
+  });
+
+  if (!managerMembership) {
+    throw new HttpError(
+      "Only a family owner or co-owner can perform this action",
+      403,
+    );
+  }
+
+  return familyFriend;
 }
