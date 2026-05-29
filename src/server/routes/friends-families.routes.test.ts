@@ -35,6 +35,7 @@ import { POST as blockFamilyFriendPOST } from "@/app/api/family-friends/[id]/blo
 import { POST as cancelFamilyFriendPOST } from "@/app/api/family-friends/[id]/cancel/route";
 import { POST as rejectFamilyFriendPOST } from "@/app/api/family-friends/[id]/reject/route";
 import { GET as transactionsGET, POST as transactionsPOST } from "@/app/api/transactions/route";
+import { POST as sharingProfilesPOST } from "@/app/api/sharing-profiles/route";
 import { SESSION_COOKIE_NAME } from "../auth/constants";
 import { prisma } from "../db/prisma";
 
@@ -103,7 +104,10 @@ beforeEach(async () => {
   await prisma.userFriend.deleteMany();
   await prisma.familyFriend.deleteMany();
   await prisma.familyJoinRequest.deleteMany();
+  await prisma.transactionShare.deleteMany();
   await prisma.transaction.deleteMany();
+  await prisma.sharingProfileTarget.deleteMany();
+  await prisma.sharingProfile.deleteMany();
   await prisma.transactionCategory.deleteMany();
   await prisma.familyMember.deleteMany();
   await prisma.family.deleteMany();
@@ -874,5 +878,257 @@ describe("families and shared ledger routes", () => {
     );
     expect(removed.isActive).toBe(false);
     expect(removed.leftAt).toBeTruthy();
+  });
+
+  // Verifies owners can promote/demote members and label family relationships.
+  it("updates member roles and relationship labels", async () => {
+    const owner = await registerUser("owner@example.com", "owner");
+    const member = await registerUser("member@example.com", "member");
+
+    const family = expectRecord(
+      await prisma.family.findFirst({ where: { createdBy: owner.user.id } }),
+      "Expected owner registration to create a family",
+    );
+
+    const familyMember = await prisma.familyMember.create({
+      data: {
+        familyId: family.id,
+        userId: member.user.id,
+        memberRole: "MEMBER",
+      },
+    });
+
+    const updateRes = await familyMemberPATCH(
+      new Request(
+        `http://localhost/api/families/${family.id}/members/${familyMember.id}`,
+        {
+          method: "PATCH",
+          headers: authedHeaders(owner.sessionToken, {
+            "content-type": "application/json",
+          }),
+          body: JSON.stringify({
+            memberRole: "CO_OWNER",
+            relationshipLabel: "Father",
+          }),
+        },
+      ),
+      {
+        params: Promise.resolve({
+          id: String(family.id),
+          memberId: String(familyMember.id),
+        }),
+      },
+    );
+
+    expect(updateRes.status).toBe(200);
+    const updateBody = await updateRes.json();
+    expect(updateBody.member.memberRole).toBe("CO_OWNER");
+    expect(updateBody.member.relationshipLabel).toBe("Father");
+  });
+
+  // Verifies explicit transaction visibility scopes protect shared ledger data.
+  it("lists personal, family, friend group, and specific-user shared transactions", async () => {
+    const owner = await registerUser("owner@example.com", "owner");
+    const familyMember = await registerUser("family@example.com", "family");
+    const friend = await registerUser("friend@example.com", "friend");
+    const stranger = await registerUser("stranger@example.com", "stranger");
+
+    const family = expectRecord(
+      await prisma.family.findFirst({ where: { createdBy: owner.user.id } }),
+      "Expected owner registration to create a family",
+    );
+
+    await prisma.familyMember.create({
+      data: {
+        familyId: family.id,
+        userId: familyMember.user.id,
+        memberRole: "MEMBER",
+      },
+    });
+    await prisma.userFriend.create({
+      data: {
+        requesterId: owner.user.id,
+        addresseeId: friend.user.id,
+        status: "ACCEPTED",
+        acceptedAt: new Date(),
+      },
+    });
+
+    const friendGroup = await prisma.friendGroup.create({
+      data: {
+        ownerId: owner.user.id,
+        name: "Trip group",
+        members: {
+          create: [
+            { userId: owner.user.id },
+            { userId: friend.user.id },
+          ],
+        },
+      },
+    });
+
+    const basePayload = {
+      type: "EXPENSE",
+      amountCents: 1000,
+      occurredAt: "2026-02-01T12:00:00.000Z",
+    };
+
+    const personalRes = await transactionsPOST(
+      new Request("http://localhost/api/transactions", {
+        method: "POST",
+        headers: authedHeaders(owner.sessionToken, {
+          "content-type": "application/json",
+        }),
+        body: JSON.stringify({
+          ...basePayload,
+          visibility: "PERSONAL",
+          merchant: "Personal",
+        }),
+      }),
+    );
+    const familyRes = await transactionsPOST(
+      new Request("http://localhost/api/transactions", {
+        method: "POST",
+        headers: authedHeaders(owner.sessionToken, {
+          "content-type": "application/json",
+        }),
+        body: JSON.stringify({
+          ...basePayload,
+          familyId: family.id,
+          visibility: "FAMILY",
+          merchant: "Family",
+        }),
+      }),
+    );
+    const groupRes = await transactionsPOST(
+      new Request("http://localhost/api/transactions", {
+        method: "POST",
+        headers: authedHeaders(owner.sessionToken, {
+          "content-type": "application/json",
+        }),
+        body: JSON.stringify({
+          ...basePayload,
+          friendGroupId: friendGroup.id,
+          visibility: "FRIEND_GROUP",
+          merchant: "Group",
+        }),
+      }),
+    );
+    const specificRes = await transactionsPOST(
+      new Request("http://localhost/api/transactions", {
+        method: "POST",
+        headers: authedHeaders(owner.sessionToken, {
+          "content-type": "application/json",
+        }),
+        body: JSON.stringify({
+          ...basePayload,
+          visibility: "SPECIFIC_USERS",
+          sharedUserIds: [friend.user.id],
+          merchant: "Specific",
+        }),
+      }),
+    );
+
+    expect(personalRes.status).toBe(201);
+    expect(familyRes.status).toBe(201);
+    expect(groupRes.status).toBe(201);
+    expect(specificRes.status).toBe(201);
+
+    const familyMemberList = await transactionsGET(
+      new Request("http://localhost/api/transactions", {
+        method: "GET",
+        headers: authedHeaders(familyMember.sessionToken),
+      }),
+    );
+    const friendList = await transactionsGET(
+      new Request("http://localhost/api/transactions", {
+        method: "GET",
+        headers: authedHeaders(friend.sessionToken),
+      }),
+    );
+    const strangerList = await transactionsGET(
+      new Request("http://localhost/api/transactions", {
+        method: "GET",
+        headers: authedHeaders(stranger.sessionToken),
+      }),
+    );
+
+    const familyMerchants = (await familyMemberList.json()).transactions.map(
+      (transaction: { merchant: string | null }) => transaction.merchant,
+    );
+    const friendMerchants = (await friendList.json()).transactions.map(
+      (transaction: { merchant: string | null }) => transaction.merchant,
+    );
+    const strangerMerchants = (await strangerList.json()).transactions.map(
+      (transaction: { merchant: string | null }) => transaction.merchant,
+    );
+
+    expect(familyMerchants).toContain("Family");
+    expect(familyMerchants).not.toContain("Personal");
+    expect(friendMerchants).toEqual(expect.arrayContaining(["Group", "Specific"]));
+    expect(strangerMerchants).toHaveLength(0);
+  });
+
+  // Verifies saved default sharing profiles apply automatically to new rows.
+  it("uses a default sharing profile when creating transactions", async () => {
+    const owner = await registerUser("owner@example.com", "owner");
+    const friend = await registerUser("friend@example.com", "friend");
+
+    await prisma.userFriend.create({
+      data: {
+        requesterId: owner.user.id,
+        addresseeId: friend.user.id,
+        status: "ACCEPTED",
+        acceptedAt: new Date(),
+      },
+    });
+
+    const profileRes = await sharingProfilesPOST(
+      new Request("http://localhost/api/sharing-profiles", {
+        method: "POST",
+        headers: authedHeaders(owner.sessionToken, {
+          "content-type": "application/json",
+        }),
+        body: JSON.stringify({
+          name: "Default friend share",
+          resourceType: "TRANSACTION",
+          isDefault: true,
+          targets: [{ targetType: "USER", userId: friend.user.id }],
+        }),
+      }),
+    );
+
+    expect(profileRes.status).toBe(201);
+
+    const transactionRes = await transactionsPOST(
+      new Request("http://localhost/api/transactions", {
+        method: "POST",
+        headers: authedHeaders(owner.sessionToken, {
+          "content-type": "application/json",
+        }),
+        body: JSON.stringify({
+          type: "EXPENSE",
+          amountCents: 1200,
+          occurredAt: "2026-02-01T12:00:00.000Z",
+          merchant: "Default Shared",
+        }),
+      }),
+    );
+
+    expect(transactionRes.status).toBe(201);
+    const transactionBody = await transactionRes.json();
+    expect(transactionBody.transaction.visibility).toBe("SPECIFIC_USERS");
+
+    const friendList = await transactionsGET(
+      new Request("http://localhost/api/transactions", {
+        method: "GET",
+        headers: authedHeaders(friend.sessionToken),
+      }),
+    );
+
+    const friendMerchants = (await friendList.json()).transactions.map(
+      (transaction: { merchant: string | null }) => transaction.merchant,
+    );
+    expect(friendMerchants).toContain("Default Shared");
   });
 });
