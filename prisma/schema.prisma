@@ -92,15 +92,16 @@ model Family {
 }
 
 model FamilyMember {
-  id         Int              @id @default(autoincrement())
-  familyId   Int
-  userId     Int
-  memberRole FamilyMemberRole @default(MEMBER)
-  joinedAt   DateTime         @default(now()) @db.Timestamptz(3)
-  isActive   Boolean          @default(true)
-  leftAt     DateTime?        @db.Timestamptz(3)
-  family     Family           @relation(fields: [familyId], references: [id], onDelete: Cascade)
-  user       User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id                Int              @id @default(autoincrement())
+  familyId          Int
+  userId            Int
+  memberRole        FamilyMemberRole @default(MEMBER)
+  relationshipLabel String?
+  joinedAt          DateTime         @default(now()) @db.Timestamptz(3)
+  isActive          Boolean          @default(true)
+  leftAt            DateTime?        @db.Timestamptz(3)
+  family            Family           @relation(fields: [familyId], references: [id], onDelete: Cascade)
+  user              User             @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([familyId, userId])
   @@index([familyId])

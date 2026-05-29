@@ -94,6 +94,7 @@ export async function listFamiliesForUser(userId: number) {
     members: membership.family.members.map((member) => ({
       id: member.id,
       role: member.memberRole,
+      relationshipLabel: member.relationshipLabel,
       joinedAt: member.joinedAt,
       user: member.user,
     })),
@@ -496,6 +497,53 @@ export async function removeFamilyMember(
     data: {
       isActive: false,
       leftAt: new Date(),
+    },
+    include: {
+      user: { select: FamilyUserSelect },
+    },
+  });
+}
+
+export async function updateFamilyMemberSettings(
+  actorUserId: number,
+  familyId: number,
+  familyMemberId: number,
+  data: {
+    memberRole?: "CO_OWNER" | "MEMBER";
+    relationshipLabel?: string | null;
+  },
+) {
+  // Owners manage member labels and promote/demote non-owner members. OWNER
+  // transfer stays out of this narrow route until we build a safer flow.
+  await requireFamilyOwner(actorUserId, familyId);
+
+  const member = await prisma.familyMember.findFirst({
+    where: {
+      id: familyMemberId,
+      familyId,
+      isActive: true,
+    },
+    select: {
+      id: true,
+      memberRole: true,
+    },
+  });
+
+  if (!member) {
+    throw new HttpError("Family member not found", 404);
+  }
+
+  if (member.memberRole === "OWNER" && data.memberRole) {
+    throw new HttpError("Owner role changes are not supported yet", 409);
+  }
+
+  return prisma.familyMember.update({
+    where: { id: member.id },
+    data: {
+      ...(data.memberRole ? { memberRole: data.memberRole } : {}),
+      ...(data.relationshipLabel !== undefined
+        ? { relationshipLabel: data.relationshipLabel }
+        : {}),
     },
     include: {
       user: { select: FamilyUserSelect },

@@ -14,7 +14,10 @@ import {
   PATCH as familyPATCH,
 } from "@/app/api/families/[id]/route";
 import { POST as familyMembersPOST } from "@/app/api/families/[id]/members/route";
-import { DELETE as familyMemberDELETE } from "@/app/api/families/[id]/members/[memberId]/route";
+import {
+  DELETE as familyMemberDELETE,
+  PATCH as familyMemberPATCH,
+} from "@/app/api/families/[id]/members/[memberId]/route";
 import {
   GET as familyJoinRequestsGET,
   POST as familyJoinRequestsPOST,
