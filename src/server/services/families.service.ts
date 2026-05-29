@@ -40,6 +40,21 @@ async function requireFamilyOwner(userId: number, familyId: number) {
   return membership;
 }
 
+// Family managers can act on family-to-family social requests without being the
+// primary owner. Family deletion and ownership changes still use OWNER only.
+async function requireFamilyManager(userId: number, familyId: number) {
+  const membership = await requireActiveFamilyMembership(userId, familyId);
+
+  if (!["OWNER", "CO_OWNER"].includes(membership.memberRole)) {
+    throw new HttpError(
+      "Only a family owner or co-owner can perform this action",
+      403,
+    );
+  }
+
+  return membership;
+}
+
 // Returns all active families for a user with enough nested data to build a
 // family switcher, member list, or permissions-aware UI.
 export async function listFamiliesForUser(userId: number) {
@@ -300,10 +315,7 @@ export async function listFamilyJoinRequestsForUser(userId: number) {
 
   const requests = await prisma.familyJoinRequest.findMany({
     where: {
-      OR: [
-        { addresseeId: userId },
-        { familyId: { in: ownedFamilyIds } },
-      ],
+      OR: [{ addresseeId: userId }, { familyId: { in: ownedFamilyIds } }],
     },
     include: {
       family: true,
@@ -496,9 +508,9 @@ export async function sendFamilyFriendRequest(
   requesterFamilyId: number,
   addresseeFamilyId: number,
 ) {
-  // Family friendships are family-level relationships, so only an owner of the
-  // requesting family can initiate them.
-  await requireFamilyOwner(actorUserId, requesterFamilyId);
+  // Family friendships are family-level relationships, so owners and co-owners
+  // of the requesting family can initiate them.
+  await requireFamilyManager(actorUserId, requesterFamilyId);
 
   if (requesterFamilyId === addresseeFamilyId) {
     throw new HttpError("A family cannot friend itself", 400);
@@ -577,8 +589,8 @@ export async function acceptFamilyFriendRequest(
   actorUserId: number,
   familyFriendId: number,
 ) {
-  // Accepting is owner-only on the receiving family, mirroring user friend
-  // requests where only the addressee can accept.
+  // Accepting is manager-only on the receiving family, mirroring user friend
+  // requests where only the addressee side can accept.
   const familyFriend = await prisma.familyFriend.findUnique({
     where: { id: familyFriendId },
     select: {
@@ -592,7 +604,7 @@ export async function acceptFamilyFriendRequest(
     throw new HttpError("Family friend request not found", 404);
   }
 
-  await requireFamilyOwner(actorUserId, familyFriend.addresseeFamilyId);
+  await requireFamilyManager(actorUserId, familyFriend.addresseeFamilyId);
 
   if (familyFriend.status !== "PENDING") {
     throw new HttpError("Family friend request is not pending", 409);

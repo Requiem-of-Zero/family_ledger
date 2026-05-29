@@ -273,6 +273,7 @@ enum UserRole {
 
 enum FamilyMemberRole {
   OWNER
+  CO_OWNER
   MEMBER
 }
 
