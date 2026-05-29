@@ -91,6 +91,15 @@ async function clearSeedData(seedUserIds: number[]) {
     },
   });
 
+  await prisma.transactionShare.deleteMany({
+    where: {
+      OR: [
+        { userId: { in: seedUserIds } },
+        { familyId: { in: seedFamilyIds } },
+      ],
+    },
+  });
+
   await prisma.transaction.deleteMany({
     where: {
       OR: [
@@ -98,6 +107,19 @@ async function clearSeedData(seedUserIds: number[]) {
         { familyId: { in: seedFamilyIds } },
       ],
     },
+  });
+
+  await prisma.sharingProfileTarget.deleteMany({
+    where: {
+      OR: [
+        { userId: { in: seedUserIds } },
+        { familyId: { in: seedFamilyIds } },
+      ],
+    },
+  });
+
+  await prisma.sharingProfile.deleteMany({
+    where: { userId: { in: seedUserIds } },
   });
 
   await prisma.transactionCategory.deleteMany({
@@ -435,6 +457,89 @@ async function main() {
       name: "School Parents",
       members: {
         create: [{ userId: morgan.id }, { userId: pat.id }],
+      },
+    },
+  });
+
+  const householdSharingProfile = await prisma.sharingProfile.create({
+    data: {
+      userId: testUser.id,
+      name: "Household",
+      resourceType: "TRANSACTION",
+      isDefault: true,
+      targets: {
+        create: [{ targetType: "FAMILY", familyId: wongFamily.id }],
+      },
+    },
+  });
+
+  const closeFriendsSharingProfile = await prisma.sharingProfile.create({
+    data: {
+      userId: testUser.id,
+      name: "Close Friends",
+      resourceType: "TRANSACTION",
+      isDefault: false,
+      targets: {
+        create: [
+          { targetType: "USER", userId: jamie.id },
+          { targetType: "FRIEND_GROUP", friendGroupId: closeFriends.id },
+        ],
+      },
+    },
+  });
+
+  await prisma.transaction.create({
+    data: {
+      createdByUserId: testUser.id,
+      familyId: wongFamily.id,
+      sharingProfileId: householdSharingProfile.id,
+      visibility: "FAMILY",
+      categoryId: groceries.id,
+      type: "EXPENSE",
+      amountCents: 11842,
+      occurredAt: new Date("2026-05-24T12:00:00.000Z"),
+      merchant: "H Mart",
+      note: "Seeded household shared groceries",
+      shares: {
+        create: [{ targetType: "FAMILY", familyId: wongFamily.id }],
+      },
+    },
+  });
+
+  await prisma.transaction.create({
+    data: {
+      createdByUserId: testUser.id,
+      friendGroupId: closeFriends.id,
+      sharingProfileId: closeFriendsSharingProfile.id,
+      visibility: "CUSTOM",
+      categoryId: dining.id,
+      type: "EXPENSE",
+      amountCents: 4860,
+      occurredAt: new Date("2026-05-26T12:00:00.000Z"),
+      merchant: "Pizza Night",
+      note: "Seeded mixed share to friend group and Jamie",
+      shares: {
+        create: [
+          { targetType: "USER", userId: jamie.id },
+          { targetType: "FRIEND_GROUP", friendGroupId: closeFriends.id },
+        ],
+      },
+    },
+  });
+
+  await prisma.transaction.create({
+    data: {
+      createdByUserId: jamie.id,
+      familyId: wongFamily.id,
+      visibility: "FAMILY",
+      categoryId: groceries.id,
+      type: "EXPENSE",
+      amountCents: 6240,
+      occurredAt: new Date("2026-05-27T12:00:00.000Z"),
+      merchant: "Shared Costco Run",
+      note: "Seeded family share from Jamie",
+      shares: {
+        create: [{ targetType: "FAMILY", familyId: wongFamily.id }],
       },
     },
   });
