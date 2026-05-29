@@ -326,6 +326,7 @@ export default async function ProfilePage() {
     memberRole: membership.memberRole,
     joinedAtLabel: formatDate(membership.joinedAt),
   }));
+  const canCreateFamily = ownedFamilies.length === 0;
 
   return (
     <main className="mx-auto w-full max-w-3xl px-4 py-8">
@@ -400,7 +401,10 @@ export default async function ProfilePage() {
         </div>
 
         {/* Current family memberships plus owner-only family CRUD. */}
-        <FamilyManager families={familyManagerProps} />
+        <FamilyManager
+          families={familyManagerProps}
+          canCreateFamily={canCreateFamily}
+        />
 
         <FamilyRequestManager
           ownedFamilies={ownedFamilies}

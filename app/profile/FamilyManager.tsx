@@ -12,11 +12,15 @@ type FamilyMembershipItem = {
 
 type FamilyManagerProps = {
   families: FamilyMembershipItem[];
+  canCreateFamily: boolean;
 };
 
 // Client-side family CRUD manager. The server page owns the source-of-truth
 // snapshot, and mutations refresh it after the API responds.
-export default function FamilyManager({ families }: FamilyManagerProps) {
+export default function FamilyManager({
+  families,
+  canCreateFamily,
+}: FamilyManagerProps) {
   const router = useRouter();
   const [newFamilyName, setNewFamilyName] = useState("");
   const [editingFamilyId, setEditingFamilyId] = useState<number | null>(null);
@@ -122,19 +126,25 @@ export default function FamilyManager({ families }: FamilyManagerProps) {
             required
             value={newFamilyName}
             onChange={(event) => setNewFamilyName(event.target.value)}
-            disabled={busy}
+            disabled={!canCreateFamily || busy}
             placeholder="Household name"
             className="min-h-11 rounded-xl border border-border bg-surface-bg px-3 text-primary-text outline-none focus:border-primary disabled:opacity-60"
           />
         </label>
         <button
           type="submit"
-          disabled={busy}
+          disabled={!canCreateFamily || busy}
           className="self-end rounded-xl bg-primary px-4 py-3 text-sm font-semibold text-primary-fg hover:opacity-90 disabled:opacity-60"
         >
           {activeAction === "create-family" ? "Creating..." : "Create"}
         </button>
       </form>
+
+      {!canCreateFamily && (
+        <p className="mt-2 text-xs text-muted-text">
+          Delete your owned family before creating a new one.
+        </p>
+      )}
 
       {message && (
         <div className="mt-3 rounded-xl border border-border bg-raised-bg px-4 py-3 text-sm text-muted-text">

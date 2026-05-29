@@ -87,6 +87,20 @@ export async function listFamiliesForUser(userId: number) {
 
 // Creates a family and immediately makes the creator its first OWNER member.
 export async function createFamilyForUser(userId: number, name: string) {
+  const existingOwnedFamily = await prisma.familyMember.findFirst({
+    where: {
+      userId,
+      memberRole: "OWNER",
+      isActive: true,
+      family: { deletedAt: null },
+    },
+    select: { familyId: true },
+  });
+
+  if (existingOwnedFamily) {
+    throw new HttpError("You already own an active family", 409);
+  }
+
   return prisma.family.create({
     data: {
       name,
