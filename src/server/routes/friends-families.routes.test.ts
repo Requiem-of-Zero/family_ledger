@@ -26,7 +26,10 @@ import {
   GET as familyFriendsGET,
   POST as familyFriendsPOST,
 } from "@/app/api/family-friends/route";
+import { DELETE as deleteFamilyFriendDELETE } from "@/app/api/family-friends/[id]/route";
 import { POST as acceptFamilyFriendPOST } from "@/app/api/family-friends/[id]/accept/route";
+import { POST as blockFamilyFriendPOST } from "@/app/api/family-friends/[id]/block/route";
+import { POST as cancelFamilyFriendPOST } from "@/app/api/family-friends/[id]/cancel/route";
 import { POST as rejectFamilyFriendPOST } from "@/app/api/family-friends/[id]/reject/route";
 import { GET as transactionsGET, POST as transactionsPOST } from "@/app/api/transactions/route";
 import { SESSION_COOKIE_NAME } from "../auth/constants";
@@ -214,25 +217,17 @@ describe("friends routes", () => {
 });
 
 describe("families and shared ledger routes", () => {
-  it("creates families, adds members, and shows shared family transactions", async () => {
+  it("uses default families, adds members, and shows shared family transactions", async () => {
     // This protects the shared ledger behavior: a family transaction created by
     // one member should be visible to another active member of that family.
     const owner = await registerUser("owner@example.com", "owner");
     const member = await registerUser("member@example.com", "member");
 
-    const createFamilyRes = await familiesPOST(
-      new Request("http://localhost/api/families", {
-        method: "POST",
-        headers: authedHeaders(owner.sessionToken, {
-          "content-type": "application/json",
-        }),
-        body: JSON.stringify({ name: "Shared House" }),
-      }),
+    const family = expectRecord(
+      await prisma.family.findFirst({ where: { createdBy: owner.user.id } }),
+      "Expected owner registration to create a family",
     );
-
-    expect(createFamilyRes.status).toBe(201);
-    const createFamilyBody = await createFamilyRes.json();
-    const familyId = createFamilyBody.family.id;
+    const familyId = family.id;
 
     const addMemberRes = await familyMembersPOST(
       new Request(`http://localhost/api/families/${familyId}/members`, {
@@ -286,6 +281,53 @@ describe("families and shared ledger routes", () => {
 
     const familiesBody = await familiesRes.json();
     expect(familiesBody.families.some((family: { id: number }) => family.id === familyId)).toBe(true);
+  });
+
+  it("prevents multiple active owned families", async () => {
+    // Registration creates the first owned family. A user can create another
+    // only after their current owned family is soft-deleted.
+    const owner = await registerUser("owner@example.com", "owner");
+
+    const duplicateRes = await familiesPOST(
+      new Request("http://localhost/api/families", {
+        method: "POST",
+        headers: authedHeaders(owner.sessionToken, {
+          "content-type": "application/json",
+        }),
+        body: JSON.stringify({ name: "Second Household" }),
+      }),
+    );
+
+    expect(duplicateRes.status).toBe(409);
+
+    const existingFamily = expectRecord(
+      await prisma.family.findFirst({ where: { createdBy: owner.user.id } }),
+      "Expected owner registration to create a family",
+    );
+
+    const deleteRes = await familyDELETE(
+      new Request(`http://localhost/api/families/${existingFamily.id}`, {
+        method: "DELETE",
+        headers: authedHeaders(owner.sessionToken),
+      }),
+      { params: Promise.resolve({ id: String(existingFamily.id) }) },
+    );
+
+    expect(deleteRes.status).toBe(200);
+
+    const createRes = await familiesPOST(
+      new Request("http://localhost/api/families", {
+        method: "POST",
+        headers: authedHeaders(owner.sessionToken, {
+          "content-type": "application/json",
+        }),
+        body: JSON.stringify({ name: "New Household" }),
+      }),
+    );
+
+    expect(createRes.status).toBe(201);
+    const createBody = await createRes.json();
+    expect(createBody.family.name).toBe("New Household");
   });
 
   it("renames families for owners and rejects non-owner updates", async () => {
@@ -462,6 +504,175 @@ describe("families and shared ledger routes", () => {
     );
 
     expect(rejectRes.status).toBe(200);
+  });
+
+  it("allows co-owners to send, accept, and reject family friend requests", async () => {
+    // Co-owners are allowed to manage family-to-family social requests without
+    // granting them destructive owner-only powers like deleting the family.
+    const owner = await registerUser("owner@example.com", "owner");
+    const coOwner = await registerUser("coowner@example.com", "coowner");
+    const otherOwner = await registerUser("other@example.com", "other");
+    const otherCoOwner = await registerUser("otherco@example.com", "otherco");
+    const thirdOwner = await registerUser("third@example.com", "third");
+
+    const ownerFamily = expectRecord(
+      await prisma.family.findFirst({ where: { createdBy: owner.user.id } }),
+      "Expected owner registration to create a family",
+    );
+    const otherFamily = expectRecord(
+      await prisma.family.findFirst({
+        where: { createdBy: otherOwner.user.id },
+      }),
+      "Expected other owner registration to create a family",
+    );
+    const thirdFamily = expectRecord(
+      await prisma.family.findFirst({
+        where: { createdBy: thirdOwner.user.id },
+      }),
+      "Expected third owner registration to create a family",
+    );
+
+    await prisma.familyMember.create({
+      data: {
+        familyId: ownerFamily.id,
+        userId: coOwner.user.id,
+        memberRole: "CO_OWNER",
+      },
+    });
+    await prisma.familyMember.create({
+      data: {
+        familyId: otherFamily.id,
+        userId: otherCoOwner.user.id,
+        memberRole: "CO_OWNER",
+      },
+    });
+
+    const createRes = await familyFriendsPOST(
+      new Request("http://localhost/api/family-friends", {
+        method: "POST",
+        headers: authedHeaders(coOwner.sessionToken, {
+          "content-type": "application/json",
+        }),
+        body: JSON.stringify({
+          requesterFamilyId: ownerFamily.id,
+          addresseeFamilyId: otherFamily.id,
+        }),
+      }),
+    );
+
+    expect(createRes.status).toBe(201);
+    const createBody = await createRes.json();
+
+    const acceptRes = await acceptFamilyFriendPOST(
+      new Request(
+        `http://localhost/api/family-friends/${createBody.familyFriend.id}/accept`,
+        {
+          method: "POST",
+          headers: authedHeaders(otherCoOwner.sessionToken),
+        },
+      ),
+      { params: Promise.resolve({ id: String(createBody.familyFriend.id) }) },
+    );
+
+    expect(acceptRes.status).toBe(200);
+
+    const pending = await prisma.familyFriend.create({
+      data: {
+        requesterFamilyId: thirdFamily.id,
+        addresseeFamilyId: ownerFamily.id,
+        status: "PENDING",
+      },
+    });
+
+    const rejectRes = await rejectFamilyFriendPOST(
+      new Request(`http://localhost/api/family-friends/${pending.id}/reject`, {
+        method: "POST",
+        headers: authedHeaders(coOwner.sessionToken),
+      }),
+      { params: Promise.resolve({ id: String(pending.id) }) },
+    );
+
+    expect(rejectRes.status).toBe(200);
+  });
+
+  it("cancels, blocks, and removes family friend relationships", async () => {
+    // These actions round out family-friend management for the later family
+    // detail page: cancel outgoing, block active, and remove blocked/accepted.
+    const owner = await registerUser("owner@example.com", "owner");
+    const otherOwner = await registerUser("other@example.com", "other");
+    const thirdOwner = await registerUser("third@example.com", "third");
+
+    const ownerFamily = expectRecord(
+      await prisma.family.findFirst({ where: { createdBy: owner.user.id } }),
+      "Expected owner registration to create a family",
+    );
+    const otherFamily = expectRecord(
+      await prisma.family.findFirst({
+        where: { createdBy: otherOwner.user.id },
+      }),
+      "Expected other owner registration to create a family",
+    );
+    const thirdFamily = expectRecord(
+      await prisma.family.findFirst({
+        where: { createdBy: thirdOwner.user.id },
+      }),
+      "Expected third owner registration to create a family",
+    );
+
+    const pending = await prisma.familyFriend.create({
+      data: {
+        requesterFamilyId: ownerFamily.id,
+        addresseeFamilyId: otherFamily.id,
+        status: "PENDING",
+      },
+    });
+
+    const cancelRes = await cancelFamilyFriendPOST(
+      new Request(`http://localhost/api/family-friends/${pending.id}/cancel`, {
+        method: "POST",
+        headers: authedHeaders(owner.sessionToken),
+      }),
+      { params: Promise.resolve({ id: String(pending.id) }) },
+    );
+
+    expect(cancelRes.status).toBe(200);
+    expect(
+      await prisma.familyFriend.findUnique({ where: { id: pending.id } }),
+    ).toBeNull();
+
+    const accepted = await prisma.familyFriend.create({
+      data: {
+        requesterFamilyId: ownerFamily.id,
+        addresseeFamilyId: thirdFamily.id,
+        status: "ACCEPTED",
+        acceptedAt: new Date(),
+      },
+    });
+
+    const blockRes = await blockFamilyFriendPOST(
+      new Request(`http://localhost/api/family-friends/${accepted.id}/block`, {
+        method: "POST",
+        headers: authedHeaders(thirdOwner.sessionToken),
+      }),
+      { params: Promise.resolve({ id: String(accepted.id) }) },
+    );
+
+    expect(blockRes.status).toBe(200);
+    const blocked = await blockRes.json();
+    expect(blocked.familyFriend.status).toBe("BLOCKED");
+
+    const removeRes = await deleteFamilyFriendDELETE(
+      new Request(`http://localhost/api/family-friends/${accepted.id}`, {
+        method: "DELETE",
+        headers: authedHeaders(owner.sessionToken),
+      }),
+      { params: Promise.resolve({ id: String(accepted.id) }) },
+    );
+
+    expect(removeRes.status).toBe(200);
+    expect(
+      await prisma.familyFriend.findUnique({ where: { id: accepted.id } }),
+    ).toBeNull();
   });
 
   it("sends, lists, and accepts family join requests", async () => {
