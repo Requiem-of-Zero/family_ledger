@@ -44,6 +44,7 @@ model User {
   transactions               Transaction[]
   receivedFriendRequests     UserFriend[]        @relation("UserFriendAddressee")
   sentFriendRequests         UserFriend[]        @relation("UserFriendRequester")
+  sharedTransactions         TransactionShare[]
 }
 
 model OAuthAccount {
@@ -167,8 +168,9 @@ model FriendGroup {
   name      String
   createdAt DateTime @default(now()) @db.Timestamptz(3)
 
-  owner   User                @relation(fields: [ownerId], references: [id], onDelete: Cascade)
-  members FriendGroupMember[]
+  owner        User                @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  members      FriendGroupMember[]
+  transactions Transaction[]
 
   @@index([ownerId])
 }
@@ -226,26 +228,43 @@ model PlaidAccount {
 // =============================================================================
 
 model Transaction {
-  id                 Int                  @id @default(autoincrement())
+  id                 Int                   @id @default(autoincrement())
   familyId           Int?
+  friendGroupId      Int?
   categoryId         Int?
   createdByUserId    Int
+  visibility         TransactionVisibility @default(PERSONAL)
   amountCents        Int
   type               TransactionType
   merchant           String?
   note               String?
-  occurredAt         DateTime             @default(now()) @db.Timestamptz(3)
-  createdAt          DateTime             @default(now()) @db.Timestamptz(3)
-  updatedAt          DateTime             @updatedAt @db.Timestamptz(3)
-  deletedAt          DateTime?            @db.Timestamptz(3)
+  occurredAt         DateTime              @default(now()) @db.Timestamptz(3)
+  createdAt          DateTime              @default(now()) @db.Timestamptz(3)
+  updatedAt          DateTime              @updatedAt @db.Timestamptz(3)
+  deletedAt          DateTime?             @db.Timestamptz(3)
   plaidAccountId     Int?
-  plaidTransactionId String?              @unique
-  category           TransactionCategory? @relation(fields: [categoryId], references: [id])
-  createdBy          User                 @relation(fields: [createdByUserId], references: [id])
-  family             Family?              @relation(fields: [familyId], references: [id])
-  plaidAccount       PlaidAccount?        @relation(fields: [plaidAccountId], references: [id])
+  plaidTransactionId String?               @unique
+  category           TransactionCategory?  @relation(fields: [categoryId], references: [id])
+  createdBy          User                  @relation(fields: [createdByUserId], references: [id])
+  family             Family?               @relation(fields: [familyId], references: [id])
+  friendGroup        FriendGroup?          @relation(fields: [friendGroupId], references: [id])
+  plaidAccount       PlaidAccount?         @relation(fields: [plaidAccountId], references: [id])
+  shares             TransactionShare[]
 
   @@index([familyId, occurredAt, createdByUserId, categoryId])
+  @@index([friendGroupId])
+}
+
+model TransactionShare {
+  id            Int         @id @default(autoincrement())
+  transactionId Int
+  userId        Int
+  createdAt     DateTime    @default(now()) @db.Timestamptz(3)
+  transaction   Transaction @relation(fields: [transactionId], references: [id], onDelete: Cascade)
+  user          User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([transactionId, userId])
+  @@index([userId])
 }
 
 model TransactionCategory {
@@ -285,6 +304,13 @@ enum OAuthProvders {
 enum TransactionType {
   EXPENSE
   INCOME
+}
+
+enum TransactionVisibility {
+  PERSONAL
+  FAMILY
+  FRIEND_GROUP
+  SPECIFIC_USERS
 }
 
 enum CategoryType {
