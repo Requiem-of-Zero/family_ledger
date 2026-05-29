@@ -3,6 +3,22 @@ import { z } from "zod";
 // -------------- Zod Schemas --------------
 
 export const TransactionTypeSchema = z.enum(["EXPENSE", "INCOME"]);
+export const TransactionVisibilitySchema = z.enum([
+  "PERSONAL",
+  "FAMILY",
+  "FRIEND_GROUP",
+  "SPECIFIC_USERS",
+  "CUSTOM",
+]);
+
+// A generic share target lets one transaction/profile point at families, friend
+// groups, specific users, or a mix of those targets.
+export const ShareTargetSchema = z.object({
+  targetType: z.enum(["FAMILY", "FRIEND_GROUP", "USER"]),
+  familyId: z.coerce.number().int().positive().optional(),
+  friendGroupId: z.coerce.number().int().positive().optional(),
+  userId: z.coerce.number().int().positive().optional(),
+});
 
 export const TransactionIdSchema = z.coerce
   .number()
@@ -14,7 +30,12 @@ export const TransactionSchema = z.object({
   type: TransactionTypeSchema,
   amountCents: z.number().int().positive(),
   occurredAt: z.coerce.date(),
+  visibility: TransactionVisibilitySchema.default("PERSONAL"),
+  sharingProfileId: z.coerce.number().int().positive().nullable().optional(),
   familyId: z.coerce.number().int().positive().nullable().optional(),
+  friendGroupId: z.coerce.number().int().positive().nullable().optional(),
+  shareTargets: z.array(ShareTargetSchema).optional(),
+  sharedUserIds: z.array(z.coerce.number().int().positive()).optional(),
   categoryId: z.coerce.number().int().positive().nullable().optional(),
   plaidAccountId: z.coerce.number().int().positive().nullable().optional(),
   merchant: z.string().trim().max(120).nullable().optional(),
@@ -42,7 +63,12 @@ export const CreateTransactionSchema = z.object({
     .int("amountCents must be an integer")
     .positive("amountCents must be > 0"),
   occurredAt: z.coerce.date(),
+  visibility: TransactionVisibilitySchema.optional(),
+  sharingProfileId: z.coerce.number().int().positive().optional(),
   familyId: z.coerce.number().int().positive().optional(),
+  friendGroupId: z.coerce.number().int().positive().optional(),
+  shareTargets: z.array(ShareTargetSchema).optional(),
+  sharedUserIds: z.array(z.coerce.number().int().positive()).optional(),
   categoryId: z.coerce.number().int().positive().optional(),
 
   merchant: z
@@ -92,5 +118,6 @@ export type TransactionListResponse = z.infer<
 >;
 
 export type TransactionType = z.infer<typeof TransactionTypeSchema>;
+export type TransactionVisibility = z.infer<typeof TransactionVisibilitySchema>;
 
 export type UpdateTransactionInput = z.infer<typeof UpdateTransactionSchema>;
