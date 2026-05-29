@@ -6,7 +6,18 @@ import type {
   UpdateTransactionInput,
 } from "@/src/shared/validators/transactions";
 import { HttpError } from "@/src/server/services/auth.service";
+import {
+  getDefaultSharingProfileTargetsForUser,
+  getSharingProfileTargetsForUser,
+  normalizeAndAuthorizeShareTargets,
+  type NormalizedShareTarget,
+} from "@/src/server/services/sharing-profiles.service";
 
+// -----------------------------------------------------------------------------
+// Ownership Guards
+// -----------------------------------------------------------------------------
+// These helpers keep transaction writes from pointing at a family/group/category
+// the current user cannot actually use.
 async function ensureUserCanUseFamily(userId: number, familyId: number) {
   const membership = await prisma.familyMember.findFirst({
     where: {
@@ -20,6 +31,20 @@ async function ensureUserCanUseFamily(userId: number, familyId: number) {
 
   if (!membership) {
     throw new HttpError("Family not found", 404);
+  }
+}
+
+async function ensureUserCanUseFriendGroup(userId: number, friendGroupId: number) {
+  const membership = await prisma.friendGroupMember.findFirst({
+    where: {
+      userId,
+      friendGroupId,
+    },
+    select: { id: true },
+  });
+
+  if (!membership) {
+    throw new HttpError("Friend group not found", 404);
   }
 }
 
@@ -73,11 +98,11 @@ export async function createTransactionForUser(
   userId: number,
   input: CreateTransactionInput,
 ) {
-  const familyId = input.familyId ?? (await getDefaultFamilyIdForUser(userId));
-
-  if (familyId) {
-    await ensureUserCanUseFamily(userId, familyId);
-  }
+  // Resolve direct shares, saved sharing profiles, or the user's default preset
+  // before creating the transaction and its optional TransactionShare rows.
+  const sharing = await resolveTransactionSharing(userId, input);
+  const { visibility, familyId, friendGroupId, sharingProfileId, targets } =
+    sharing;
 
   if (input.categoryId) {
     await ensureCategoryBelongsToFamily(input.categoryId, familyId);
@@ -87,12 +112,23 @@ export async function createTransactionForUser(
     data: {
       createdByUserId: userId,
       familyId,
+      friendGroupId,
+      sharingProfileId,
+      visibility,
       categoryId: input.categoryId ?? null,
       amountCents: input.amountCents,
       type: input.type,
       merchant: input.merchant ?? null,
       note: input.note ?? null,
       occurredAt: input.occurredAt,
+      shares:
+        targets.length > 0
+          ? {
+              createMany: {
+                data: targets,
+              },
+            }
+          : undefined,
     },
   });
   return transaction;
@@ -123,14 +159,39 @@ export async function listTransactionsForUser(
           .then((memberships) =>
             memberships.map((membership) => membership.familyId),
           );
+  const friendGroupIds = await prisma.friendGroupMember
+    .findMany({
+      where: { userId },
+      select: { friendGroupId: true },
+    })
+    .then((memberships) =>
+      memberships.map((membership) => membership.friendGroupId),
+    );
 
+  // A user can see their own transactions, older direct family/group shares, and
+  // the newer generic TransactionShare rows for users, families, or friend groups.
   return prisma.transaction.findMany({
     where: {
       type: query.type,
       deletedAt: null,
       OR: [
-        { createdByUserId: userId, familyId: null },
-        { familyId: { in: activeFamilyIds } },
+        { createdByUserId: userId },
+        { visibility: "FAMILY", familyId: { in: activeFamilyIds } },
+        { visibility: "FRIEND_GROUP", friendGroupId: { in: friendGroupIds } },
+        {
+          shares: {
+            some: {
+              OR: [
+                { targetType: "USER", userId },
+                { targetType: "FAMILY", familyId: { in: activeFamilyIds } },
+                {
+                  targetType: "FRIEND_GROUP",
+                  friendGroupId: { in: friendGroupIds },
+                },
+              ],
+            },
+          },
+        },
       ],
       ...(from || to
         ? {
@@ -166,13 +227,16 @@ export async function getTransactionForUserById(
   userId: number,
   transactionId: TransactionId,
 ) {
+  // Mirror the list visibility rules so direct URL access cannot read private
+  // transactions outside the user's ownership or share graph.
   return prisma.transaction.findFirst({
     where: {
       deletedAt: null,
       id: transactionId,
       OR: [
-        { createdByUserId: userId, familyId: null },
+        { createdByUserId: userId },
         {
+          visibility: "FAMILY",
           family: {
             members: {
               some: {
@@ -182,9 +246,163 @@ export async function getTransactionForUserById(
             },
           },
         },
+        {
+          visibility: "FRIEND_GROUP",
+          friendGroup: {
+            members: {
+              some: { userId },
+            },
+          },
+        },
+        {
+          shares: {
+            some: {
+              OR: [
+                { targetType: "USER", userId },
+                {
+                  targetType: "FAMILY",
+                  family: {
+                    members: {
+                      some: { userId, isActive: true },
+                    },
+                  },
+                },
+                {
+                  targetType: "FRIEND_GROUP",
+                  friendGroup: {
+                    members: {
+                      some: { userId },
+                    },
+                  },
+                },
+              ],
+            },
+          },
+        },
       ],
     },
   });
+}
+
+// -----------------------------------------------------------------------------
+// Transaction Sharing Resolution
+// -----------------------------------------------------------------------------
+// This converts all supported inputs into one write shape:
+// - sharingProfileId: use a saved preset
+// - shareTargets: use explicit mixed targets
+// - no sharing input: try the user's default transaction profile
+// - legacy fields: keep existing family/group/specific-user callers working
+async function resolveTransactionSharing(
+  userId: number,
+  input: CreateTransactionInput,
+) {
+  if (input.sharingProfileId) {
+    const { profile, targets } = await getSharingProfileTargetsForUser(
+      userId,
+      input.sharingProfileId,
+    );
+
+    return buildSharingData(targets, profile.id);
+  }
+
+  if (input.shareTargets && input.shareTargets.length > 0) {
+    const targets = await normalizeAndAuthorizeShareTargets(
+      userId,
+      input.shareTargets,
+    );
+
+    return buildSharingData(targets, null);
+  }
+
+  if (
+    !input.visibility &&
+    !input.familyId &&
+    !input.friendGroupId &&
+    !input.sharedUserIds
+  ) {
+    const defaultProfile = await getDefaultSharingProfileTargetsForUser(userId);
+    if (defaultProfile) {
+      return buildSharingData(defaultProfile.targets, defaultProfile.profile.id);
+    }
+  }
+
+  const visibility =
+    input.visibility ?? (input.familyId ? "FAMILY" : "PERSONAL");
+  const legacyTargets: NormalizedShareTarget[] = [];
+
+  if (visibility === "FAMILY") {
+    const familyId = input.familyId ?? (await getDefaultFamilyIdForUser(userId));
+    if (!familyId) {
+      throw new HttpError("Family is required for family-shared transactions", 400);
+    }
+    await ensureUserCanUseFamily(userId, familyId);
+    legacyTargets.push({ targetType: "FAMILY", familyId });
+  }
+
+  if (visibility === "FRIEND_GROUP") {
+    if (!input.friendGroupId) {
+      throw new HttpError("Friend group is required for friend group transactions", 400);
+    }
+    await ensureUserCanUseFriendGroup(userId, input.friendGroupId);
+    legacyTargets.push({
+      targetType: "FRIEND_GROUP",
+      friendGroupId: input.friendGroupId,
+    });
+  }
+
+  if (visibility === "SPECIFIC_USERS") {
+    const targets = (input.sharedUserIds ?? []).map((sharedUserId) => ({
+      targetType: "USER" as const,
+      userId: sharedUserId,
+    }));
+    legacyTargets.push(
+      ...(await normalizeAndAuthorizeShareTargets(userId, targets)),
+    );
+  }
+
+  return buildSharingData(legacyTargets, null, visibility);
+}
+
+// Convert normalized targets into both summary columns and generic share rows.
+// The summary columns preserve simple filtering for one-family/one-group shares,
+// while TransactionShare supports bulk and mixed sharing targets.
+function buildSharingData(
+  targets: NormalizedShareTarget[],
+  sharingProfileId: number | null,
+  requestedVisibility?: CreateTransactionInput["visibility"],
+) {
+  const familyTargets = targets.filter((target) => target.targetType === "FAMILY");
+  const groupTargets = targets.filter(
+    (target) => target.targetType === "FRIEND_GROUP",
+  );
+  const userTargets = targets.filter((target) => target.targetType === "USER");
+  const targetCount = targets.length;
+
+  const visibility =
+    requestedVisibility ??
+    (targetCount === 0
+      ? "PERSONAL"
+      : targetCount === 1 && familyTargets.length === 1
+        ? "FAMILY"
+        : targetCount === 1 && groupTargets.length === 1
+          ? "FRIEND_GROUP"
+          : userTargets.length === targetCount
+            ? "SPECIFIC_USERS"
+            : "CUSTOM");
+
+  return {
+    visibility,
+    sharingProfileId,
+    familyId: familyTargets.length === 1 ? familyTargets[0].familyId! : null,
+    friendGroupId:
+      groupTargets.length === 1 ? groupTargets[0].friendGroupId! : null,
+    targets: targets.map((target) => ({
+      targetType: target.targetType,
+      familyId: target.familyId ?? null,
+      friendGroupId: target.friendGroupId ?? null,
+      userId: target.userId ?? null,
+    })),
+  };
 }
 
 export async function updateTransactionForUserById(
@@ -192,6 +410,11 @@ export async function updateTransactionForUserById(
   transactionId: TransactionId,
   data: UpdateTransactionInput,
 ) {
+  // Sharing updates will get their own flow later; for now, strip API-only share
+  // fields so Prisma only receives columns that exist on Transaction.
+  const transactionData = { ...data };
+  delete transactionData.shareTargets;
+  delete transactionData.sharedUserIds;
   const existing = await prisma.transaction.findFirst({
     where: {
       id: transactionId,
@@ -204,7 +427,7 @@ export async function updateTransactionForUserById(
 
   return prisma.transaction.update({
     where: { id: transactionId },
-    data,
+    data: transactionData,
   });
 }
 
