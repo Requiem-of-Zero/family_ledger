@@ -21,29 +21,31 @@ datasource db {
 // =============================================================================
 
 model User {
-  id                         Int                 @id @default(autoincrement())
-  email                      String              @unique
+  id                         Int                    @id @default(autoincrement())
+  email                      String                 @unique
   username                   String
   passwordHash               String
-  role                       UserRole            @default(USER)
-  isActive                   Boolean             @default(true)
-  lastLogin                  DateTime?           @db.Timestamptz(3)
-  createdAt                  DateTime            @default(now()) @db.Timestamptz(3)
-  updatedAt                  DateTime            @updatedAt @db.Timestamptz(3)
-  deletedAt                  DateTime?           @db.Timestamptz(3)
+  role                       UserRole               @default(USER)
+  isActive                   Boolean                @default(true)
+  lastLogin                  DateTime?              @db.Timestamptz(3)
+  createdAt                  DateTime               @default(now()) @db.Timestamptz(3)
+  updatedAt                  DateTime               @updatedAt @db.Timestamptz(3)
+  deletedAt                  DateTime?              @db.Timestamptz(3)
   profileImageUrl            String?
-  createdFamilies            Family[]            @relation("FamilyCreatedBy")
-  receivedFamilyJoinRequests FamilyJoinRequest[] @relation("FamilyJoinAddressee")
-  sentFamilyJoinRequests     FamilyJoinRequest[] @relation("FamilyJoinRequester")
+  createdFamilies            Family[]               @relation("FamilyCreatedBy")
+  receivedFamilyJoinRequests FamilyJoinRequest[]    @relation("FamilyJoinAddressee")
+  sentFamilyJoinRequests     FamilyJoinRequest[]    @relation("FamilyJoinRequester")
   familyMembers              FamilyMember[]
   friendGroups               FriendGroup[]
   friendGroupMembers         FriendGroupMember[]
   oauthAccounts              OAuthAccount[]
   plaidItems                 PlaidItem[]
   sessions                   Session[]
+  sharingProfiles            SharingProfile[]       @relation("SharingProfileOwner")
+  sharingProfileTargets      SharingProfileTarget[] @relation("SharingProfileTargetUser")
   transactions               Transaction[]
-  receivedFriendRequests     UserFriend[]        @relation("UserFriendAddressee")
-  sentFriendRequests         UserFriend[]        @relation("UserFriendRequester")
+  receivedFriendRequests     UserFriend[]           @relation("UserFriendAddressee")
+  sentFriendRequests         UserFriend[]           @relation("UserFriendRequester")
   sharedTransactions         TransactionShare[]
 }
 
@@ -78,18 +80,20 @@ model Session {
 // FamilyMember is the join table between Family and User.
 
 model Family {
-  id                           Int                   @id @default(autoincrement())
+  id                           Int                    @id @default(autoincrement())
   name                         String
   createdBy                    Int
-  createdAt                    DateTime              @default(now()) @db.Timestamptz(3)
-  deletedAt                    DateTime?             @db.Timestamptz(3)
-  creator                      User                  @relation("FamilyCreatedBy", fields: [createdBy], references: [id])
+  createdAt                    DateTime               @default(now()) @db.Timestamptz(3)
+  deletedAt                    DateTime?              @db.Timestamptz(3)
+  creator                      User                   @relation("FamilyCreatedBy", fields: [createdBy], references: [id])
   members                      FamilyMember[]
   joinRequests                 FamilyJoinRequest[]
   transactions                 Transaction[]
   transactionCategories        TransactionCategory[]
-  sentFamilyFriendRequests     FamilyFriend[]        @relation("FamilyFriendRequester")
-  receivedFamilyFriendRequests FamilyFriend[]        @relation("FamilyFriendAddressee")
+  sentFamilyFriendRequests     FamilyFriend[]         @relation("FamilyFriendRequester")
+  receivedFamilyFriendRequests FamilyFriend[]         @relation("FamilyFriendAddressee")
+  sharingProfileTargets        SharingProfileTarget[]
+  transactionShares            TransactionShare[]
 }
 
 model FamilyMember {
@@ -168,9 +172,11 @@ model FriendGroup {
   name      String
   createdAt DateTime @default(now()) @db.Timestamptz(3)
 
-  owner        User                @relation(fields: [ownerId], references: [id], onDelete: Cascade)
-  members      FriendGroupMember[]
-  transactions Transaction[]
+  owner                 User                   @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  members               FriendGroupMember[]
+  sharingProfileTargets SharingProfileTarget[]
+  transactionShares     TransactionShare[]
+  transactions          Transaction[]
 
   @@index([ownerId])
 }
@@ -231,6 +237,7 @@ model Transaction {
   id                 Int                   @id @default(autoincrement())
   familyId           Int?
   friendGroupId      Int?
+  sharingProfileId   Int?
   categoryId         Int?
   createdByUserId    Int
   visibility         TransactionVisibility @default(PERSONAL)
@@ -249,21 +256,63 @@ model Transaction {
   family             Family?               @relation(fields: [familyId], references: [id])
   friendGroup        FriendGroup?          @relation(fields: [friendGroupId], references: [id])
   plaidAccount       PlaidAccount?         @relation(fields: [plaidAccountId], references: [id])
+  sharingProfile     SharingProfile?       @relation(fields: [sharingProfileId], references: [id])
   shares             TransactionShare[]
 
   @@index([familyId, occurredAt, createdByUserId, categoryId])
   @@index([friendGroupId])
+  @@index([sharingProfileId])
 }
 
 model TransactionShare {
-  id            Int         @id @default(autoincrement())
+  id            Int             @id @default(autoincrement())
   transactionId Int
-  userId        Int
-  createdAt     DateTime    @default(now()) @db.Timestamptz(3)
-  transaction   Transaction @relation(fields: [transactionId], references: [id], onDelete: Cascade)
-  user          User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  targetType    ShareTargetType
+  userId        Int?
+  familyId      Int?
+  friendGroupId Int?
+  createdAt     DateTime        @default(now()) @db.Timestamptz(3)
+  transaction   Transaction     @relation(fields: [transactionId], references: [id], onDelete: Cascade)
+  user          User?           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  family        Family?         @relation(fields: [familyId], references: [id], onDelete: Cascade)
+  friendGroup   FriendGroup?    @relation(fields: [friendGroupId], references: [id], onDelete: Cascade)
 
-  @@unique([transactionId, userId])
+  @@index([familyId])
+  @@index([friendGroupId])
+  @@index([userId])
+}
+
+model SharingProfile {
+  id           Int                    @id @default(autoincrement())
+  userId       Int
+  name         String
+  resourceType SharingResourceType    @default(TRANSACTION)
+  isDefault    Boolean                @default(false)
+  createdAt    DateTime               @default(now()) @db.Timestamptz(3)
+  updatedAt    DateTime               @updatedAt @db.Timestamptz(3)
+  user         User                   @relation("SharingProfileOwner", fields: [userId], references: [id], onDelete: Cascade)
+  targets      SharingProfileTarget[]
+  transactions Transaction[]
+
+  @@unique([userId, resourceType, name])
+  @@index([userId, resourceType, isDefault])
+}
+
+model SharingProfileTarget {
+  id               Int             @id @default(autoincrement())
+  sharingProfileId Int
+  targetType       ShareTargetType
+  userId           Int?
+  familyId         Int?
+  friendGroupId    Int?
+  sharingProfile   SharingProfile  @relation(fields: [sharingProfileId], references: [id], onDelete: Cascade)
+  user             User?           @relation("SharingProfileTargetUser", fields: [userId], references: [id], onDelete: Cascade)
+  family           Family?         @relation(fields: [familyId], references: [id], onDelete: Cascade)
+  friendGroup      FriendGroup?    @relation(fields: [friendGroupId], references: [id], onDelete: Cascade)
+
+  @@index([sharingProfileId])
+  @@index([familyId])
+  @@index([friendGroupId])
   @@index([userId])
 }
 
@@ -311,6 +360,19 @@ enum TransactionVisibility {
   FAMILY
   FRIEND_GROUP
   SPECIFIC_USERS
+  CUSTOM
+}
+
+enum SharingResourceType {
+  TRANSACTION
+  RECIPE
+  ALL
+}
+
+enum ShareTargetType {
+  FAMILY
+  FRIEND_GROUP
+  USER
 }
 
 enum CategoryType {
