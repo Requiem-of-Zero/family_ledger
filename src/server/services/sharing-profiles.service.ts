@@ -55,10 +55,13 @@ export async function normalizeAndAuthorizeShareTargets(
   }
 
   if (friendGroupIds.length > 0) {
-    const count = await prisma.friendGroupMember.count({
+    const count = await prisma.friendGroup.count({
       where: {
-        userId: actorUserId,
-        friendGroupId: { in: friendGroupIds },
+        id: { in: friendGroupIds },
+        OR: [
+          { ownerId: actorUserId },
+          { members: { some: { userId: actorUserId } } },
+        ],
       },
     });
 

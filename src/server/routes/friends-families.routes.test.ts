@@ -35,7 +35,14 @@ import { POST as blockFamilyFriendPOST } from "@/app/api/family-friends/[id]/blo
 import { POST as cancelFamilyFriendPOST } from "@/app/api/family-friends/[id]/cancel/route";
 import { POST as rejectFamilyFriendPOST } from "@/app/api/family-friends/[id]/reject/route";
 import { GET as transactionsGET, POST as transactionsPOST } from "@/app/api/transactions/route";
-import { POST as sharingProfilesPOST } from "@/app/api/sharing-profiles/route";
+import {
+  GET as sharingProfilesGET,
+  POST as sharingProfilesPOST,
+} from "@/app/api/sharing-profiles/route";
+import {
+  DELETE as sharingProfileDELETE,
+  PATCH as sharingProfilePATCH,
+} from "@/app/api/sharing-profiles/[id]/route";
 import { SESSION_COOKIE_NAME } from "../auth/constants";
 import { prisma } from "../db/prisma";
 
@@ -1130,5 +1137,275 @@ describe("families and shared ledger routes", () => {
       (transaction: { merchant: string | null }) => transaction.merchant,
     );
     expect(friendMerchants).toContain("Default Shared");
+  });
+
+  // Verifies saved profile CRUD supports the full target picker:
+  // family membership, owned friend groups, and accepted individual friends.
+  it("creates, lists, updates, and deletes mixed-target sharing profiles", async () => {
+    const owner = await registerUser("owner@example.com", "owner");
+    const friend = await registerUser("friend@example.com", "friend");
+
+    await prisma.userFriend.create({
+      data: {
+        requesterId: owner.user.id,
+        addresseeId: friend.user.id,
+        status: "ACCEPTED",
+        acceptedAt: new Date(),
+      },
+    });
+
+    const family = await prisma.family.create({
+      data: {
+        name: "Owner Household",
+        createdBy: owner.user.id,
+        members: {
+          create: { userId: owner.user.id, memberRole: "OWNER" },
+        },
+      },
+    });
+
+    const friendGroup = await prisma.friendGroup.create({
+      data: {
+        ownerId: owner.user.id,
+        name: "Owner Group",
+        members: {
+          create: { userId: friend.user.id },
+        },
+      },
+    });
+
+    const createRes = await sharingProfilesPOST(
+      new Request("http://localhost/api/sharing-profiles", {
+        method: "POST",
+        headers: authedHeaders(owner.sessionToken, {
+          "content-type": "application/json",
+        }),
+        body: JSON.stringify({
+          name: "Mixed share",
+          resourceType: "TRANSACTION",
+          isDefault: false,
+          targets: [
+            { targetType: "FAMILY", familyId: family.id },
+            { targetType: "FRIEND_GROUP", friendGroupId: friendGroup.id },
+            { targetType: "USER", userId: friend.user.id },
+          ],
+        }),
+      }),
+    );
+
+    expect(createRes.status).toBe(201);
+    const createBody = await createRes.json();
+    expect(createBody.sharingProfile.targets).toHaveLength(3);
+
+    const listRes = await sharingProfilesGET(
+      new Request("http://localhost/api/sharing-profiles", {
+        method: "GET",
+        headers: authedHeaders(owner.sessionToken),
+      }),
+    );
+
+    expect(listRes.status).toBe(200);
+    const listBody = await listRes.json();
+    expect(
+      listBody.sharingProfiles.map(
+        (profile: { name: string }) => profile.name,
+      ),
+    ).toContain("Mixed share");
+
+    const patchRes = await sharingProfilePATCH(
+      new Request(
+        `http://localhost/api/sharing-profiles/${createBody.sharingProfile.id}`,
+        {
+          method: "PATCH",
+          headers: authedHeaders(owner.sessionToken, {
+            "content-type": "application/json",
+          }),
+          body: JSON.stringify({
+            name: "Friends only",
+            isDefault: true,
+            targets: [{ targetType: "USER", userId: friend.user.id }],
+          }),
+        },
+      ),
+      {
+        params: Promise.resolve({
+          id: String(createBody.sharingProfile.id),
+        }),
+      },
+    );
+
+    expect(patchRes.status).toBe(200);
+    const patchBody = await patchRes.json();
+    expect(patchBody.sharingProfile.name).toBe("Friends only");
+    expect(patchBody.sharingProfile.isDefault).toBe(true);
+    expect(patchBody.sharingProfile.targets).toHaveLength(1);
+    expect(patchBody.sharingProfile.targets[0].targetType).toBe("USER");
+
+    const deleteRes = await sharingProfileDELETE(
+      new Request(
+        `http://localhost/api/sharing-profiles/${createBody.sharingProfile.id}`,
+        {
+          method: "DELETE",
+          headers: authedHeaders(owner.sessionToken),
+        },
+      ),
+      {
+        params: Promise.resolve({
+          id: String(createBody.sharingProfile.id),
+        }),
+      },
+    );
+
+    expect(deleteRes.status).toBe(200);
+    const deletedProfile = await prisma.sharingProfile.findUnique({
+      where: { id: createBody.sharingProfile.id },
+    });
+    expect(deletedProfile).toBeNull();
+  });
+
+  // Verifies default selection is exclusive per resource type.
+  it("keeps only one default sharing profile per resource type", async () => {
+    const owner = await registerUser("owner@example.com", "owner");
+    const friend = await registerUser("friend@example.com", "friend");
+
+    await prisma.userFriend.create({
+      data: {
+        requesterId: owner.user.id,
+        addresseeId: friend.user.id,
+        status: "ACCEPTED",
+        acceptedAt: new Date(),
+      },
+    });
+
+    const firstProfile = await prisma.sharingProfile.create({
+      data: {
+        userId: owner.user.id,
+        name: "First default",
+        resourceType: "TRANSACTION",
+        isDefault: true,
+        targets: {
+          create: { targetType: "USER", userId: friend.user.id },
+        },
+      },
+    });
+
+    const createSecondDefaultRes = await sharingProfilesPOST(
+      new Request("http://localhost/api/sharing-profiles", {
+        method: "POST",
+        headers: authedHeaders(owner.sessionToken, {
+          "content-type": "application/json",
+        }),
+        body: JSON.stringify({
+          name: "Second default",
+          resourceType: "TRANSACTION",
+          isDefault: true,
+          targets: [{ targetType: "USER", userId: friend.user.id }],
+        }),
+      }),
+    );
+
+    expect(createSecondDefaultRes.status).toBe(201);
+    const firstAfterCreate = await prisma.sharingProfile.findUnique({
+      where: { id: firstProfile.id },
+    });
+    expect(firstAfterCreate?.isDefault).toBe(false);
+
+    const firstPatchRes = await sharingProfilePATCH(
+      new Request(
+        `http://localhost/api/sharing-profiles/${firstProfile.id}`,
+        {
+          method: "PATCH",
+          headers: authedHeaders(owner.sessionToken, {
+            "content-type": "application/json",
+          }),
+          body: JSON.stringify({ isDefault: true }),
+        },
+      ),
+      { params: Promise.resolve({ id: String(firstProfile.id) }) },
+    );
+
+    expect(firstPatchRes.status).toBe(200);
+    const defaults = await prisma.sharingProfile.findMany({
+      where: {
+        userId: owner.user.id,
+        resourceType: "TRANSACTION",
+        isDefault: true,
+      },
+    });
+    expect(defaults).toHaveLength(1);
+    expect(defaults[0].id).toBe(firstProfile.id);
+  });
+
+  // Verifies profile targets cannot point at users/families/groups outside the
+  // actor's accepted social graph and active memberships.
+  it("rejects unavailable sharing profile targets", async () => {
+    const owner = await registerUser("owner@example.com", "owner");
+    const stranger = await registerUser("stranger@example.com", "stranger");
+
+    const inaccessibleFamily = await prisma.family.create({
+      data: {
+        name: "Stranger Household",
+        createdBy: stranger.user.id,
+        members: {
+          create: { userId: stranger.user.id, memberRole: "OWNER" },
+        },
+      },
+    });
+
+    const inaccessibleGroup = await prisma.friendGroup.create({
+      data: {
+        ownerId: stranger.user.id,
+        name: "Stranger Group",
+      },
+    });
+
+    const inaccessibleUserRes = await sharingProfilesPOST(
+      new Request("http://localhost/api/sharing-profiles", {
+        method: "POST",
+        headers: authedHeaders(owner.sessionToken, {
+          "content-type": "application/json",
+        }),
+        body: JSON.stringify({
+          name: "Bad user",
+          targets: [{ targetType: "USER", userId: stranger.user.id }],
+        }),
+      }),
+    );
+    expect(inaccessibleUserRes.status).toBe(403);
+
+    const inaccessibleFamilyRes = await sharingProfilesPOST(
+      new Request("http://localhost/api/sharing-profiles", {
+        method: "POST",
+        headers: authedHeaders(owner.sessionToken, {
+          "content-type": "application/json",
+        }),
+        body: JSON.stringify({
+          name: "Bad family",
+          targets: [
+            { targetType: "FAMILY", familyId: inaccessibleFamily.id },
+          ],
+        }),
+      }),
+    );
+    expect(inaccessibleFamilyRes.status).toBe(403);
+
+    const inaccessibleGroupRes = await sharingProfilesPOST(
+      new Request("http://localhost/api/sharing-profiles", {
+        method: "POST",
+        headers: authedHeaders(owner.sessionToken, {
+          "content-type": "application/json",
+        }),
+        body: JSON.stringify({
+          name: "Bad group",
+          targets: [
+            {
+              targetType: "FRIEND_GROUP",
+              friendGroupId: inaccessibleGroup.id,
+            },
+          ],
+        }),
+      }),
+    );
+    expect(inaccessibleGroupRes.status).toBe(403);
   });
 });

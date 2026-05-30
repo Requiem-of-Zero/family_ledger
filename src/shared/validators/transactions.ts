@@ -20,6 +20,14 @@ export const ShareTargetSchema = z.object({
   userId: z.coerce.number().int().positive().optional(),
 });
 
+export const TransactionShareSchema = z.object({
+  id: z.number().int().positive(),
+  targetType: z.enum(["FAMILY", "FRIEND_GROUP", "USER"]),
+  familyId: z.number().int().positive().nullable().optional(),
+  friendGroupId: z.number().int().positive().nullable().optional(),
+  userId: z.number().int().positive().nullable().optional(),
+});
+
 export const TransactionIdSchema = z.coerce
   .number()
   .int("Transaction id must be an integer")
@@ -27,6 +35,7 @@ export const TransactionIdSchema = z.coerce
 
 export const TransactionSchema = z.object({
   id: TransactionIdSchema,
+  createdByUserId: z.number().int().positive(),
   type: TransactionTypeSchema,
   amountCents: z.number().int().positive(),
   occurredAt: z.coerce.date(),
@@ -36,6 +45,14 @@ export const TransactionSchema = z.object({
   friendGroupId: z.coerce.number().int().positive().nullable().optional(),
   shareTargets: z.array(ShareTargetSchema).optional(),
   sharedUserIds: z.array(z.coerce.number().int().positive()).optional(),
+  shares: z.array(TransactionShareSchema).default([]),
+  sharingProfile: z
+    .object({
+      id: z.number().int().positive(),
+      name: z.string(),
+    })
+    .nullable()
+    .optional(),
   categoryId: z.coerce.number().int().positive().nullable().optional(),
   plaidAccountId: z.coerce.number().int().positive().nullable().optional(),
   merchant: z.string().trim().max(120).nullable().optional(),
