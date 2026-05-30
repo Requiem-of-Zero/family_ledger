@@ -3,6 +3,7 @@ import { formatDate, formatMoney } from "@/src/shared/utils/format";
 
 type Props = {
   tx: Transaction;
+  groupingColor?: string;
   currency?: string;
   onDetails?: (id: number) => void;
   onDelete?: (id: number) => void;
@@ -11,6 +12,7 @@ type Props = {
 
 export default function TransactionRow({
   tx,
+  groupingColor,
   currency = "USD",
   onDetails,
   onEdit,
@@ -24,7 +26,10 @@ export default function TransactionRow({
   const amountPrefix = isIncome ? "+" : "-";
 
   return (
-    <div className="flex items-start justify-between gap-3">
+    <div
+      className="flex items-start justify-between gap-3 border-l-4 pl-3"
+      style={{ borderLeftColor: groupingColor ?? "transparent" }}
+    >
       <div className="min-w-0">
         {/* Top row: merchant + type chip */}
         <div className="flex items-center gap-2">

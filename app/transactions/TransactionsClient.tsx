@@ -19,7 +19,7 @@
 
 "use client";
 
-import { useState, useEffect, useMemo, useRef } from "react";
+import { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
   TransactionListResponseSchema,
@@ -32,6 +32,38 @@ import TransactionsChart from "./TransactionChart";
 import { formatMoney } from "@/src/shared/utils/format";
 
 const NO_SOURCES_PARAM = "none";
+const CATEGORY_COLOR_STORAGE_KEY = "family-ledger:transaction-category-colors";
+
+const DEFAULT_GROUPING_COLORS = {
+  MANUAL: "#94a3b8",
+  BANK: "#38bdf8",
+  PERSONAL: "#94a3b8",
+  FAMILY: "#1d4ed8",
+  FRIEND_GROUP: "#0f766e",
+  SPECIFIC_USERS: "#9333ea",
+  CUSTOM: "#ec4899",
+} as const;
+
+const LEDGER_LINE_COLORS = {
+  expense: "#ef4444",
+  income: "#22c55e",
+  net: "#eab308",
+} as const;
+
+const COMPARE_SERIES_COLORS = [
+  "#38bdf8",
+  "#a78bfa",
+  "#f97316",
+  "#14b8a6",
+  "#f472b6",
+  "#84cc16",
+  "#fb7185",
+  "#22d3ee",
+  "#c084fc",
+  "#f59e0b",
+] as const;
+
+type GroupingColorKey = keyof typeof DEFAULT_GROUPING_COLORS;
 
 type PlaidAccountSource = {
   id: number;
@@ -40,6 +72,29 @@ type PlaidAccountSource = {
   item: {
     institutionName?: string | null;
   };
+};
+
+type FamilySource = {
+  id: number;
+  name: string;
+};
+
+type FriendGroupSource = {
+  id: number;
+  name: string;
+};
+
+type SourceOption = {
+  value: string;
+  label: string;
+};
+
+type SourceOptionGroup = {
+  label: string;
+  color: string;
+  colorKey: GroupingColorKey;
+  totalSourceIds: string[];
+  options: SourceOption[];
 };
 
 export default function TransactionsClient() {
@@ -51,6 +106,11 @@ export default function TransactionsClient() {
    */
   const [items, setItems] = useState<Transaction[]>([]);
   const [plaidAccounts, setPlaidAccounts] = useState<PlaidAccountSource[]>([]);
+  const [families, setFamilies] = useState<FamilySource[]>([]);
+  const [friendGroups, setFriendGroups] = useState<FriendGroupSource[]>([]);
+  const [categoryColorOverrides, setCategoryColorOverrides] = useState<
+    Partial<Record<GroupingColorKey, string>>
+  >({});
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -62,6 +122,7 @@ export default function TransactionsClient() {
 
   const [isSourceDropdownOpen, setIsSourceDropdownOpen] = useState(false);
   const [sourceSearch, setSourceSearch] = useState("");
+  const [chartMode, setChartMode] = useState<"ledger" | "compare">("ledger");
   const sourceDropdownRef = useRef<HTMLDivElement | null>(null);
 
   /**
@@ -148,8 +209,8 @@ export default function TransactionsClient() {
     typeFilter === "EXPENSE"
       ? "Expenses"
       : typeFilter === "INCOME"
-      ? "Income"
-      : "Transactions";
+        ? "Income"
+        : "Transactions";
 
   /**
    * pageSubtitle - Dynamic subtitle text
@@ -159,8 +220,8 @@ export default function TransactionsClient() {
     typeFilter === "EXPENSE"
       ? "All outgoing money."
       : typeFilter === "INCOME"
-      ? "All incoming money"
-      : "Track spending and keep your ledger clean.";
+        ? "All incoming money"
+        : "Track spending and keep your ledger clean.";
   // ==================== URL UPDATE FUNCTIONS ====================
 
   /**
@@ -284,6 +345,33 @@ export default function TransactionsClient() {
     updateDatesInUrl(fromStr, toStr);
   }
 
+  function getPresetRange(days: 7 | 30 | 90) {
+    const to = new Date();
+    const from = new Date();
+    from.setDate(from.getDate() - days);
+
+    return {
+      from: from.toISOString().split("T")[0],
+      to: to.toISOString().split("T")[0],
+    };
+  }
+
+  const activeDatePreset = useMemo(() => {
+    if (!fromDate && !toDate) return "all";
+
+    const ranges = {
+      "7d": getPresetRange(7),
+      "30d": getPresetRange(30),
+      "90d": getPresetRange(90),
+    };
+
+    return (
+      (Object.entries(ranges).find(
+        ([, range]) => range.from === fromDate && range.to === toDate,
+      )?.[0] as "7d" | "30d" | "90d" | undefined) ?? null
+    );
+  }, [fromDate, toDate]);
+
   // ==================== DATA FETCHING (useEffect) ====================
 
   /**
@@ -325,13 +413,10 @@ export default function TransactionsClient() {
 
         // Fetch transactions from the API route
         // credentials: "include" sends cookies for authentication
-        const res = await fetch(
-          `/api/transactions?${params.toString()}`,
-          {
-            method: "GET",
-            credentials: "include", // Include authentication cookies
-          }
-        );
+        const res = await fetch(`/api/transactions?${params.toString()}`, {
+          method: "GET",
+          credentials: "include", // Include authentication cookies
+        });
 
         // Parse the JSON response body
         // If parsing fails, default to empty object (handled below)
@@ -363,7 +448,7 @@ export default function TransactionsClient() {
           setError(
             error instanceof Error
               ? error.message
-              : "Failed to load transactions."
+              : "Failed to load transactions.",
           );
           setItems([]); // Clear transactions on error
         }
@@ -383,40 +468,105 @@ export default function TransactionsClient() {
   useEffect(() => {
     let cancelled = false;
 
-    async function loadPlaidAccounts() {
+    async function loadFilterSources() {
       try {
-        const res = await fetch("/api/plaid/accounts", {
-          method: "GET",
-          credentials: "include",
-        });
+        const [accountsRes, familiesRes, friendGroupsRes] = await Promise.all([
+          fetch("/api/plaid/accounts", {
+            method: "GET",
+            credentials: "include",
+          }),
+          fetch("/api/families", {
+            method: "GET",
+            credentials: "include",
+          }),
+          fetch("/api/friend-groups", {
+            method: "GET",
+            credentials: "include",
+          }),
+        ]);
 
-        const body: unknown = await res.json().catch(() => ({}));
+        const accountsBody: unknown = await accountsRes
+          .json()
+          .catch(() => ({}));
+        const familiesBody: unknown = await familiesRes
+          .json()
+          .catch(() => ({}));
+        const friendGroupsBody: unknown = await friendGroupsRes
+          .json()
+          .catch(() => ({}));
 
-        if (!res.ok) {
-          console.error("Failed to load Plaid accounts:", body);
-          return;
+        if (
+          accountsRes.ok &&
+          accountsBody &&
+          typeof accountsBody === "object" &&
+          "accounts" in accountsBody &&
+          Array.isArray(accountsBody.accounts) &&
+          !cancelled
+        ) {
+          setPlaidAccounts(accountsBody.accounts as PlaidAccountSource[]);
         }
 
         if (
-          body &&
-          typeof body === "object" &&
-          "accounts" in body &&
-          Array.isArray(body.accounts) &&
+          familiesRes.ok &&
+          familiesBody &&
+          typeof familiesBody === "object" &&
+          "families" in familiesBody &&
+          Array.isArray(familiesBody.families) &&
           !cancelled
         ) {
-          setPlaidAccounts(body.accounts as PlaidAccountSource[]);
+          setFamilies(familiesBody.families as FamilySource[]);
+        }
+
+        if (
+          friendGroupsRes.ok &&
+          friendGroupsBody &&
+          typeof friendGroupsBody === "object" &&
+          "friendGroups" in friendGroupsBody &&
+          Array.isArray(friendGroupsBody.friendGroups) &&
+          !cancelled
+        ) {
+          setFriendGroups(friendGroupsBody.friendGroups as FriendGroupSource[]);
         }
       } catch (error) {
-        console.error("Failed to load Plaid accounts:", error);
+        console.error("Failed to load transaction filter sources:", error);
       }
     }
 
-    loadPlaidAccounts();
+    loadFilterSources();
 
     return () => {
       cancelled = true;
     };
   }, []);
+
+  useEffect(() => {
+    try {
+      const rawValue = window.localStorage.getItem(CATEGORY_COLOR_STORAGE_KEY);
+      if (!rawValue) return;
+
+      const parsedValue = JSON.parse(rawValue);
+      if (parsedValue && typeof parsedValue === "object") {
+        queueMicrotask(() => {
+          setCategoryColorOverrides(
+            parsedValue as Partial<Record<GroupingColorKey, string>>,
+          );
+        });
+      }
+    } catch (error) {
+      console.error("Failed to load category colors:", error);
+    }
+  }, []);
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(
+        CATEGORY_COLOR_STORAGE_KEY,
+        JSON.stringify(categoryColorOverrides),
+      );
+    } catch (error) {
+      console.error("Failed to save category colors:", error);
+    }
+  }, [categoryColorOverrides]);
 
   useEffect(() => {
     if (!isSourceDropdownOpen) return;
@@ -440,6 +590,13 @@ export default function TransactionsClient() {
 
   // ==================== COMPUTED VALUES (useMemo) ====================
 
+  const getCategoryColor = useCallback(
+    (colorKey: GroupingColorKey) => {
+      return categoryColorOverrides[colorKey] ?? DEFAULT_GROUPING_COLORS[colorKey];
+    },
+    [categoryColorOverrides],
+  );
+
   const accountOptions = useMemo(() => {
     return plaidAccounts.map((account) => {
       const institution = account.item.institutionName ?? "Connected bank";
@@ -452,35 +609,151 @@ export default function TransactionsClient() {
     });
   }, [plaidAccounts]);
 
-  const sourceOptions = useMemo(
+  const manualSourceOption = useMemo<SourceOption>(
+    () => ({
+      value: "manual",
+      label: "Manual entries",
+    }),
+    [],
+  );
+
+  const sharedSourceOption = useMemo<SourceOption>(
+    () => ({
+      value: "shared",
+      label: "All shared",
+    }),
+    [],
+  );
+
+  const familySourceOptions = useMemo<SourceOption[]>(
+    () =>
+      families.map((family) => ({
+        value: `family:${family.id}`,
+        label: family.name,
+      })),
+    [families],
+  );
+
+  const friendGroupSourceOptions = useMemo<SourceOption[]>(
+    () =>
+      friendGroups.map((group) => ({
+        value: `friend-group:${group.id}`,
+        label: group.name,
+      })),
+    [friendGroups],
+  );
+
+  // The source dropdown is now one combined filter surface. Bank/manual options
+  // match where the transaction came from, while family/group options match the
+  // transaction's sharing scope.
+  const groupedSourceOptions = useMemo<SourceOptionGroup[]>(
     () => [
-      { value: "manual", label: "Manual transactions" },
-      ...accountOptions,
+      {
+        label: "Manual entries",
+        color: getCategoryColor("MANUAL"),
+        colorKey: "MANUAL",
+        totalSourceIds: ["manual"],
+        options: [manualSourceOption],
+      },
+      {
+        label: "Bank connections",
+        color: getCategoryColor("BANK"),
+        colorKey: "BANK",
+        totalSourceIds: accountOptions.map((option) => option.value),
+        options: accountOptions,
+      },
+      {
+        label: "Shared",
+        color: getCategoryColor("SPECIFIC_USERS"),
+        colorKey: "SPECIFIC_USERS",
+        totalSourceIds: ["shared"],
+        options: [sharedSourceOption],
+      },
+      {
+        label: "Families",
+        color: getCategoryColor("FAMILY"),
+        colorKey: "FAMILY",
+        totalSourceIds: familySourceOptions.map((option) => option.value),
+        options: familySourceOptions,
+      },
+      {
+        label: "Friend groups",
+        color: getCategoryColor("FRIEND_GROUP"),
+        colorKey: "FRIEND_GROUP",
+        totalSourceIds: friendGroupSourceOptions.map((option) => option.value),
+        options: friendGroupSourceOptions,
+      },
     ],
-    [accountOptions],
+    [
+      accountOptions,
+      familySourceOptions,
+      friendGroupSourceOptions,
+      getCategoryColor,
+      manualSourceOption,
+      sharedSourceOption,
+    ],
+  );
+
+  const combinedSourceOptions = useMemo(
+    () => groupedSourceOptions.flatMap((group) => group.options),
+    [groupedSourceOptions],
   );
 
   const allSourceIds = useMemo(
-    () => sourceOptions.map((option) => option.value),
-    [sourceOptions],
+    () => combinedSourceOptions.map((option) => option.value),
+    [combinedSourceOptions],
   );
 
-  const visibleSourceOptions = useMemo(() => {
+  // Search the source dropdown. Searching "sha/share/shared" reveals shared
+  // connection groups, but the internal direct-share source stays hidden.
+  const visibleGroupedSourceOptions = useMemo(() => {
     const searchTerm = sourceSearch.trim().toLowerCase();
 
-    if (!searchTerm) return sourceOptions;
+    if (!searchTerm) return groupedSourceOptions;
 
-    return sourceOptions.filter((option) =>
-      option.label.toLowerCase().includes(searchTerm),
-    );
-  }, [sourceOptions, sourceSearch]);
+    return groupedSourceOptions.map((group) => {
+      const groupLabel = group.label.toLowerCase();
+      const isSharedConnectionGroup =
+        group.label === "Families" || group.label === "Friend groups";
+      const isSharedSearch =
+        searchTerm.length >= 3 && "shared".startsWith(searchTerm);
+      const shouldShowWholeGroup =
+        groupLabel.includes(searchTerm) ||
+        (isSharedSearch && isSharedConnectionGroup);
 
-  const visibleSourceIds = useMemo(
-    () => visibleSourceOptions.map((option) => option.value),
-    [visibleSourceOptions],
-  );
+      return {
+        ...group,
+        options: shouldShowWholeGroup
+          ? group.options
+          : group.options.filter((option) =>
+              option.label.toLowerCase().includes(searchTerm),
+            ),
+      };
+    });
+  }, [groupedSourceOptions, sourceSearch]);
+
   const hasSourceSearch = sourceSearch.trim().length > 0;
 
+  const visibleListGroupedSourceOptions = useMemo(
+    () =>
+      visibleGroupedSourceOptions.filter(
+        (group) => group.label !== "Shared",
+      ),
+    [visibleGroupedSourceOptions],
+  );
+
+  const visibleListSourceOptions = useMemo(
+    () => visibleListGroupedSourceOptions.flatMap((group) => group.options),
+    [visibleListGroupedSourceOptions],
+  );
+
+  const visibleSourceIds = useMemo(
+    () => visibleListSourceOptions.map((option) => option.value),
+    [visibleListSourceOptions],
+  );
+
+  // URL state decides the active sources. No source param means the default
+  // "all sources" view; the sentinel value represents an intentionally empty set.
   const selectedSourceIds = useMemo(() => {
     if (selectedSourceParamIds.includes(NO_SOURCES_PARAM)) return [];
     if (selectedSourceParamIds.length === 0) return allSourceIds;
@@ -496,16 +769,24 @@ export default function TransactionsClient() {
     [selectedSourceIds],
   );
 
+  const sourceOptionByValue = useMemo(() => {
+    return new Map(
+      combinedSourceOptions.map((option) => [option.value, option] as const),
+    );
+  }, [combinedSourceOptions]);
+
   const sourceButtonLabel =
     selectedSourceIds.length === 0
       ? "No sources"
-      : selectedSourceIds.length === sourceOptions.length
-      ? "All sources selected"
-      : selectedSourceIds.length === 1
-      ? sourceOptions.find((option) => option.value === selectedSourceIds[0])
-          ?.label ?? "1 source"
-      : `${selectedSourceIds.length} sources`;
+      : selectedSourceIds.length === combinedSourceOptions.length
+        ? "All sources selected"
+        : selectedSourceIds.length === 1
+          ? (combinedSourceOptions.find(
+              (option) => option.value === selectedSourceIds[0],
+            )?.label ?? "1 source")
+          : `${selectedSourceIds.length} sources`;
 
+  // Toggle one source pill and sync the selection back into the URL.
   function toggleSource(sourceId: string) {
     const next = selectedSourceIds.includes(sourceId)
       ? selectedSourceIds.filter((id) => id !== sourceId)
@@ -514,8 +795,12 @@ export default function TransactionsClient() {
     updateSourcesInUrl(next);
   }
 
+  // Bulk actions operate on whatever rows are currently visible in the dropdown,
+  // so search results can be selected/cleared without touching hidden sources.
   function selectVisibleSources() {
-    updateSourcesInUrl(Array.from(new Set([...selectedSourceIds, ...visibleSourceIds])));
+    updateSourcesInUrl(
+      Array.from(new Set([...selectedSourceIds, ...visibleSourceIds])),
+    );
   }
 
   function clearVisibleSources() {
@@ -523,6 +808,107 @@ export default function TransactionsClient() {
     updateSourcesInUrl(
       selectedSourceIds.filter((sourceId) => !visibleSourceIdSet.has(sourceId)),
     );
+  }
+
+  // Category colors are broad buckets (manual, bank, family, group), not
+  // per-account colors. This keeps the UI personalized without palette overload.
+  function updateCategoryColor(colorKey: GroupingColorKey, color: string) {
+    setCategoryColorOverrides((currentColors) => ({
+      ...currentColors,
+      [colorKey]: color,
+    }));
+  }
+
+  function resetCategoryColor(colorKey: GroupingColorKey) {
+    setCategoryColorOverrides((currentColors) => {
+      const nextColors = { ...currentColors };
+      delete nextColors[colorKey];
+      return nextColors;
+    });
+  }
+
+  // Translate a transaction into every source filter it belongs to. Personal
+  // rows map to manual/bank; shared rows map to family/group/direct-share ids.
+  const getTransactionSourceIds = useCallback((tx: Transaction) => {
+    const sourceId = tx.plaidAccountId
+      ? `plaid:${tx.plaidAccountId}`
+      : "manual";
+    const transactionSourceIds = new Set<string>();
+    const isPersonal = tx.visibility === "PERSONAL" && tx.shares.length === 0;
+
+    if (isPersonal) {
+      transactionSourceIds.add(sourceId);
+      return Array.from(transactionSourceIds);
+    }
+
+    if (tx.visibility === "SPECIFIC_USERS" || tx.visibility === "CUSTOM") {
+      transactionSourceIds.add("shared");
+    }
+
+    if (tx.familyId) transactionSourceIds.add(`family:${tx.familyId}`);
+    if (tx.friendGroupId) {
+      transactionSourceIds.add(`friend-group:${tx.friendGroupId}`);
+    }
+
+    for (const share of tx.shares) {
+      if (share.familyId) transactionSourceIds.add(`family:${share.familyId}`);
+      if (share.friendGroupId) {
+        transactionSourceIds.add(`friend-group:${share.friendGroupId}`);
+      }
+    }
+
+    return Array.from(transactionSourceIds);
+  }, []);
+
+  // Per-source totals power the numbers shown beside each source option.
+  const sourceTotals = useMemo(() => {
+    const totals = new Map<string, number>();
+    const searchTerm = query.trim().toLowerCase();
+
+    for (const tx of items) {
+      if (searchTerm) {
+        const merchant = (tx.merchant ?? "").toLowerCase();
+        const note = (tx.note ?? "").toLowerCase();
+        const institution = (
+          tx.plaidAccount?.item.institutionName ?? ""
+        ).toLowerCase();
+        const accountName = (tx.plaidAccount?.name ?? "").toLowerCase();
+        const matchesSearch =
+          merchant.includes(searchTerm) ||
+          note.includes(searchTerm) ||
+          institution.includes(searchTerm) ||
+          accountName.includes(searchTerm);
+
+        if (!matchesSearch) continue;
+      }
+
+      const signedAmount =
+        tx.type === "INCOME" ? tx.amountCents : -tx.amountCents;
+
+      for (const sourceId of getTransactionSourceIds(tx)) {
+        totals.set(sourceId, (totals.get(sourceId) ?? 0) + signedAmount);
+      }
+    }
+
+    return totals;
+  }, [getTransactionSourceIds, items, query]);
+
+  function getSourceGroupTotal(sourceIds: string[]) {
+    return sourceIds.reduce(
+      (total, sourceId) => total + (sourceTotals.get(sourceId) ?? 0),
+      0,
+    );
+  }
+
+  // Pick the accent color for each transaction row from its broad source bucket.
+  function getTransactionGroupingColor(tx: Transaction) {
+    if (tx.visibility === "PERSONAL") {
+      return tx.plaidAccountId
+        ? getCategoryColor("BANK")
+        : getCategoryColor("MANUAL");
+    }
+
+    return getCategoryColor(tx.visibility);
   }
 
   /**
@@ -543,11 +929,12 @@ export default function TransactionsClient() {
 
     // Filter by selected sources first, then by merchant/note search.
     return items.filter((tx) => {
-      const sourceId = tx.plaidAccountId
-        ? `plaid:${tx.plaidAccountId}`
-        : "manual";
+      const transactionSourceIds = getTransactionSourceIds(tx);
 
-      if (!isDefaultAllSources && !selectedSourceIdSet.has(sourceId)) {
+      if (
+        !isDefaultAllSources &&
+        !transactionSourceIds.some((id) => selectedSourceIdSet.has(id))
+      ) {
         return false;
       }
 
@@ -567,33 +954,98 @@ export default function TransactionsClient() {
         accountName.includes(searchTerm)
       );
     });
-  }, [items, query, isDefaultAllSources, selectedSourceIdSet]); // Recalculate when filters/search change
+  }, [
+    items,
+    query,
+    getTransactionSourceIds,
+    isDefaultAllSources,
+    selectedSourceIdSet,
+  ]); // Recalculate when filters/search change
+
+  // Shared-only source selections are treated differently from the default view:
+  // they should chart/summarize the selected shared rows instead of personal rows.
+  const isSharedOnlySourceSelection = useMemo(() => {
+    const personalSourceIds = selectedSourceIds.filter(
+      (sourceId) => sourceId === "manual" || sourceId.startsWith("plaid:"),
+    );
+
+    return !isDefaultAllSources && personalSourceIds.length === 0;
+  }, [isDefaultAllSources, selectedSourceIds]);
+
+  const summaryTransactions = useMemo(() => {
+    // Default ledger stays personal-only so shared rows do not inflate normal
+    // totals. Shared-only source filters intentionally summarize selected rows.
+    if (isSharedOnlySourceSelection) {
+      return filtered;
+    }
+
+    return filtered.filter(
+      (tx) => tx.visibility === "PERSONAL" && tx.shares.length === 0,
+    );
+  }, [filtered, isSharedOnlySourceSelection]);
 
   /**
-   * totalCents - Sum of all filtered transaction amounts
+   * totalCents - Sum of the transactions represented by the summary/chart.
    *
-   * Calculates the total monetary value of all currently filtered transactions.
-   * Stored in cents (integers) for precision, then formatted for display.
-   *
-   * Uses useMemo to avoid recalculating on every render - only recalculates
-   * when the filtered array changes.
+   * Personal ledger totals exclude shared rows by default so they do not inflate
+   * normal income, expense, and net worth readings.
    */
   const totalCents = useMemo(() => {
-    // Sum all transaction amounts (in cents)
-    // Note: Expenses are positive in the data, so we might want to negate them
-    // depending on how you want to display totals
     let sum = 0;
 
-    for (let i = 0; i < filtered.length; i++) {
-      if (filtered[i].type === "INCOME") {
-        sum += filtered[i].amountCents;
+    for (let i = 0; i < summaryTransactions.length; i++) {
+      if (summaryTransactions[i].type === "INCOME") {
+        sum += summaryTransactions[i].amountCents;
       } else {
-        sum -= filtered[i].amountCents;
+        sum -= summaryTransactions[i].amountCents;
       }
     }
 
     return sum;
-  }, [filtered]); // Recalculate when filtered transactions change
+  }, [summaryTransactions]);
+
+  const totalLabel = isSharedOnlySourceSelection
+    ? "Selected total"
+    : "Personal total";
+
+  const chartTransactions = summaryTransactions;
+
+  // Compare mode assigns distinct line colors by selected order so several bank
+  // accounts do not collapse into the same category color.
+  const getCompareSourceColor = useCallback(
+    (_sourceId: string, index: number) => {
+      // Compare mode needs every selected line to be visually distinct, even
+      // when multiple lines belong to the same category like bank accounts.
+      return COMPARE_SERIES_COLORS[index % COMPARE_SERIES_COLORS.length];
+    },
+    [],
+  );
+
+  // Build one chart series per selected source for compare mode. Limiting to six
+  // keeps the chart readable on mobile while still supporting quick comparisons.
+  const compareSourceSeries = useMemo(() => {
+    if (isDefaultAllSources) return [];
+
+    return selectedSourceIds
+      .map((sourceId) => sourceOptionByValue.get(sourceId))
+      .filter((option): option is SourceOption => Boolean(option))
+      .slice(0, 6)
+      .map((option, index) => ({
+        id: option.value,
+        label: option.label,
+        color: getCompareSourceColor(option.value, index),
+        transactions: filtered.filter((tx) =>
+          getTransactionSourceIds(tx).includes(option.value),
+        ),
+      }));
+  }, [
+    filtered,
+    getTransactionSourceIds,
+    getCompareSourceColor,
+    isDefaultAllSources,
+    selectedSourceIds,
+    sourceOptionByValue,
+  ]);
 
   // ==================== EVENT HANDLERS ====================
 
@@ -640,9 +1092,29 @@ export default function TransactionsClient() {
     } catch (error) {
       // Display error message to user
       setError(
-        error instanceof Error ? error.message : "Failed to delete transaction."
+        error instanceof Error
+          ? error.message
+          : "Failed to delete transaction.",
       );
     }
+  }
+
+  function datePresetButtonClass(preset: "7d" | "30d" | "90d" | "all") {
+    return toggleButtonClass(activeDatePreset === preset, "px-3 py-1.5");
+  }
+
+  // Shared visual language for segmented controls and source pills.
+  function toggleButtonClass(
+    isSelected: boolean,
+    sizeClass = "px-3 py-2",
+  ) {
+    return [
+      "inline-flex items-center justify-center gap-1.5 rounded-lg border text-xs font-semibold transition sm:text-sm",
+      sizeClass,
+      isSelected
+        ? "border-primary bg-raised-bg text-primary-text shadow-sm"
+        : "border-border text-muted-text hover:bg-surface-bg hover:text-primary-text",
+    ].join(" ");
   }
 
   // ==================== RENDER ====================
@@ -672,8 +1144,33 @@ export default function TransactionsClient() {
           </button>
         </div>
 
+        <div className="flex items-center justify-end">
+          <div className="grid grid-cols-2 rounded-xl border border-border bg-raised-bg p-1">
+            <button
+              type="button"
+              onClick={() => setChartMode("ledger")}
+              className={toggleButtonClass(chartMode === "ledger")}
+            >
+              My ledger
+            </button>
+            <button
+              type="button"
+              onClick={() => setChartMode("compare")}
+              className={toggleButtonClass(chartMode === "compare")}
+            >
+              Compare selected
+            </button>
+          </div>
+        </div>
+
         {/* Transaction Chart - Visual representation of transaction trends */}
-        <TransactionsChart transactions={filtered} typeFilter={typeFilter} />
+          <TransactionsChart
+            transactions={chartTransactions}
+            typeFilter={typeFilter}
+            mode={chartMode}
+            compareSeries={compareSourceSeries}
+            lineColors={LEDGER_LINE_COLORS}
+          />
 
         {/* Filters Card - Contains all filtering controls */}
         <div className="rounded-card border border-border bg-surface-bg p-4">
@@ -685,28 +1182,28 @@ export default function TransactionsClient() {
               <button
                 type="button"
                 onClick={() => setDatePreset("7d")}
-                className="rounded-lg px-3 py-1.5 text-xs font-medium bg-raised-bg hover:bg-primary hover:text-primary-fg transition"
+                className={datePresetButtonClass("7d")}
               >
                 Last 7 days
               </button>
               <button
                 type="button"
                 onClick={() => setDatePreset("30d")}
-                className="rounded-lg px-3 py-1.5 text-xs font-medium bg-raised-bg hover:bg-primary hover:text-primary-fg transition"
+                className={datePresetButtonClass("30d")}
               >
                 Last 30 days
               </button>
               <button
                 type="button"
                 onClick={() => setDatePreset("90d")}
-                className="rounded-lg px-3 py-1.5 text-xs font-medium bg-raised-bg hover:bg-primary hover:text-primary-fg transition"
+                className={datePresetButtonClass("90d")}
               >
                 Last 90 days
               </button>
               <button
                 type="button"
                 onClick={() => setDatePreset("all")}
-                className="rounded-lg px-3 py-1.5 text-xs font-medium bg-raised-bg hover:bg-primary hover:text-primary-fg transition"
+                className={datePresetButtonClass("all")}
               >
                 All time
               </button>
@@ -760,12 +1257,7 @@ export default function TransactionsClient() {
               <button
                 type="button"
                 onClick={() => updateTypeInUrl(null)}
-                className={[
-                  "rounded-lg px-3 py-2 text-sm font-semibold transition",
-                  typeFilter === null
-                    ? "bg-primary text-primary-fg"
-                    : "text-muted-text hover:text-primary-text",
-                ].join(" ")}
+                className={toggleButtonClass(typeFilter === null)}
               >
                 All
               </button>
@@ -773,12 +1265,7 @@ export default function TransactionsClient() {
               <button
                 type="button"
                 onClick={() => updateTypeInUrl("EXPENSE")}
-                className={[
-                  "rounded-lg px-3 py-2 text-sm font-semibold transition",
-                  typeFilter === "EXPENSE"
-                    ? "bg-primary text-primary-fg"
-                    : "text-muted-text hover:text-primary-text",
-                ].join(" ")}
+                className={toggleButtonClass(typeFilter === "EXPENSE")}
               >
                 Expense
               </button>
@@ -786,12 +1273,7 @@ export default function TransactionsClient() {
               <button
                 type="button"
                 onClick={() => updateTypeInUrl("INCOME")}
-                className={[
-                  "rounded-lg px-3 py-2 text-sm font-semibold transition",
-                  typeFilter === "INCOME"
-                    ? "bg-primary text-primary-fg"
-                    : "text-muted-text hover:text-primary-text",
-                ].join(" ")}
+                className={toggleButtonClass(typeFilter === "INCOME")}
               >
                 Income
               </button>
@@ -802,7 +1284,7 @@ export default function TransactionsClient() {
           <div ref={sourceDropdownRef} className="relative mt-3">
             <div className="mb-2 flex items-center justify-between gap-3 text-xs font-medium text-muted-text">
               <span>Source</span>
-              <span>{sourceOptions.length} available</span>
+              <span>{combinedSourceOptions.length} available</span>
             </div>
             <button
               type="button"
@@ -828,38 +1310,89 @@ export default function TransactionsClient() {
                       placeholder="Search sources..."
                       className="w-full rounded-lg border border-border bg-raised-bg px-3 py-2 text-sm outline-none focus:border-border-hover"
                     />
-                    <div className="flex gap-2">
-                    <button
-                      type="button"
-                      onClick={selectVisibleSources}
-                      disabled={visibleSourceIds.length === 0}
-                      className="flex-1 rounded-lg border border-border bg-raised-bg px-3 py-2 text-xs font-semibold text-primary-text hover:border-border-hover"
-                    >
-                      {hasSourceSearch ? "Select list" : "Select all"}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={clearVisibleSources}
-                      disabled={visibleSourceIds.length === 0}
-                      className="flex-1 rounded-lg border border-border bg-raised-bg px-3 py-2 text-xs font-semibold text-primary-text hover:border-border-hover"
-                    >
-                      {hasSourceSearch ? "Clear list" : "Clear all"}
-                    </button>
+                    <div className="grid grid-cols-2 gap-2">
+                      <button
+                        type="button"
+                        onClick={selectVisibleSources}
+                        disabled={visibleSourceIds.length === 0}
+                        className="rounded-lg border border-border px-3 py-2 text-xs font-semibold text-muted-text transition hover:bg-surface-bg hover:text-primary-text disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        {hasSourceSearch
+                          ? `Select list (${visibleSourceIds.length})`
+                          : `Select all (${visibleSourceIds.length})`}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={clearVisibleSources}
+                        disabled={visibleSourceIds.length === 0}
+                        className="rounded-lg border border-border px-3 py-2 text-xs font-semibold text-muted-text transition hover:bg-surface-bg hover:text-primary-text disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        {hasSourceSearch
+                          ? `Clear list (${visibleSourceIds.length})`
+                          : `Clear all (${visibleSourceIds.length})`}
+                      </button>
                     </div>
                   </div>
-                  {visibleSourceOptions.length === 0 ? (
+                  {visibleListSourceOptions.length === 0 ? (
                     <div className="rounded-lg border border-border bg-raised-bg px-3 py-2 text-sm text-muted-text">
                       No sources match your search.
                     </div>
                   ) : null}
-                  {visibleSourceOptions.map((option) => (
-                    <SourceCheckbox
-                      key={option.value}
-                      label={option.label}
-                      checked={selectedSourceIds.includes(option.value)}
-                      onChange={() => toggleSource(option.value)}
-                    />
-                  ))}
+                  {visibleListGroupedSourceOptions.map((group) =>
+                    group.options.length > 0 ? (
+                      <div key={group.label} className="space-y-1">
+                        <div className="flex items-center justify-between gap-2 px-1 text-xs font-semibold">
+                          <span className="inline-flex min-w-0 items-center gap-1.5 text-muted-text">
+                            {/* Category color is shared by every source in this bucket. */}
+                            <input
+                              type="color"
+                              value={group.color}
+                              aria-label={`Choose ${group.label} color`}
+                              onChange={(event) =>
+                                updateCategoryColor(
+                                  group.colorKey,
+                                  event.target.value,
+                                )
+                              }
+                              className="h-4 w-4 shrink-0 cursor-pointer rounded border border-border bg-transparent p-0"
+                            />
+                            {group.label}
+                          </span>
+                          <span className="flex shrink-0 items-center gap-2">
+                            <button
+                              type="button"
+                              onClick={() => resetCategoryColor(group.colorKey)}
+                              className="rounded-md px-1.5 py-1 text-[10px] font-semibold text-muted-text hover:bg-surface-bg hover:text-primary-text"
+                            >
+                              Reset
+                            </button>
+                            <span
+                              className={[
+                                "tabular-nums",
+                                getSourceGroupTotal(group.totalSourceIds) < 0
+                                  ? "text-red-300"
+                                  : "text-emerald-300",
+                              ].join(" ")}
+                            >
+                              {formatMoney(
+                                getSourceGroupTotal(group.totalSourceIds),
+                                "USD",
+                              )}
+                            </span>
+                          </span>
+                        </div>
+                        {group.options.map((option) => (
+                          <SourceCheckbox
+                            key={option.value}
+                            label={option.label}
+                            totalCents={sourceTotals.get(option.value) ?? 0}
+                            checked={selectedSourceIds.includes(option.value)}
+                            onChange={() => toggleSource(option.value)}
+                          />
+                        ))}
+                      </div>
+                    ) : null,
+                  )}
                 </div>
               </div>
             )}
@@ -874,7 +1407,7 @@ export default function TransactionsClient() {
 
             {/* Total Amount - Sum of all filtered transactions */}
             <span className="font-semibold">
-              Total: {formatMoney(totalCents, "USD")}
+              {totalLabel}: {formatMoney(totalCents, "USD")}
             </span>
           </div>
 
@@ -901,22 +1434,23 @@ export default function TransactionsClient() {
           ) : (
             // Transaction List - Render each transaction as a row
             <div className="max-h-[700px] overflow-y-auto rounded-card">
-            <ul className="divide-y divide-border">
-              {filtered.slice(0,40).map((tx) => (
-                <li key={tx.id} className="p-4 hover:bg-raised-bg">
-                  <TransactionRow
-                    tx={tx}
-                    onDetails={(id) => router.push(`/transactions/${id}`)}
-                    onEdit={(tx) => {
-                      // Set the transaction to edit and open modal
-                      setEditingTx(tx);
-                      setIsModalOpen(true);
-                    }}
-                    onDelete={(id) => handleDelete(id)}
-                  />
-                </li>
-              ))}
-            </ul>
+              <ul className="divide-y divide-border">
+                {filtered.slice(0, 40).map((tx) => (
+                  <li key={tx.id} className="p-4 hover:bg-raised-bg">
+                    <TransactionRow
+                      tx={tx}
+                      groupingColor={getTransactionGroupingColor(tx)}
+                      onDetails={(id) => router.push(`/transactions/${id}`)}
+                      onEdit={(tx) => {
+                        // Set the transaction to edit and open modal
+                        setEditingTx(tx);
+                        setIsModalOpen(true);
+                      }}
+                      onDelete={(id) => handleDelete(id)}
+                    />
+                  </li>
+                ))}
+              </ul>
             </div>
           )}
         </div>
@@ -936,22 +1470,38 @@ export default function TransactionsClient() {
 
 function SourceCheckbox({
   label,
+  totalCents,
   checked,
   onChange,
 }: {
   label: string;
+  totalCents: number;
   checked: boolean;
   onChange: () => void;
 }) {
   return (
-    <label className="flex min-h-10 items-center gap-2 rounded-xl border border-border bg-raised-bg px-3 py-2 text-sm text-primary-text">
-      <input
-        type="checkbox"
-        checked={checked}
-        onChange={onChange}
-        className="h-4 w-4 rounded border-border accent-primary"
-      />
-      <span className="min-w-0 truncate">{label}</span>
-    </label>
+    <button
+      type="button"
+      aria-pressed={checked}
+      onClick={onChange}
+      className={[
+        "flex min-h-10 w-full items-center gap-2 rounded-xl border px-3 py-2 text-left text-sm transition",
+        checked
+          ? "border-primary bg-raised-bg text-primary-text shadow-sm"
+          : "border-border bg-raised-bg text-muted-text hover:bg-surface-bg hover:text-primary-text",
+      ].join(" ")}
+    >
+      <span className="min-w-0 flex-1 truncate font-semibold">{label}</span>
+      <span
+        className={[
+          "shrink-0 tabular-nums text-xs font-semibold",
+          totalCents < 0
+              ? "text-red-300"
+              : "text-emerald-300",
+        ].join(" ")}
+      >
+        {formatMoney(totalCents, "USD")}
+      </span>
+    </button>
   );
 }
