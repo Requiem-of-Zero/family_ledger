@@ -13,7 +13,11 @@ const pool = new Pool({
 
 const adapter = new PrismaPg(pool);
 
-const REQUIRED_MODEL_DELEGATES = ["familyJoinRequest"] as const;
+const REQUIRED_MODEL_DELEGATES = [
+  "familyJoinRequest",
+  "sharingProfile",
+  "transactionShare",
+] as const;
 
 const globalForPrisma = globalThis as unknown as { prisma?: PrismaClient };
 
