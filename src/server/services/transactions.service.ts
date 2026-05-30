@@ -100,7 +100,9 @@ export async function createTransactionForUser(
 ) {
   // Resolve direct shares, saved sharing profiles, or the user's default preset
   // before creating the transaction and its optional TransactionShare rows.
-  const sharing = await resolveTransactionSharing(userId, input);
+  const sharing = await resolveTransactionSharing(userId, input, {
+    useDefaultProfile: true,
+  });
   const { visibility, familyId, friendGroupId, sharingProfileId, targets } =
     sharing;
 
@@ -139,6 +141,14 @@ export async function listTransactionsForUser(
   query: ListTransactionQuery,
 ) {
   const { from, to, familyId } = query;
+  const toExclusive = to ? new Date(to) : undefined;
+
+  // Date filters come from date-only inputs. A raw `to=YYYY-MM-DD` parses to
+  // midnight at the start of that day, which hides transactions added later the
+  // same day. Query `< next day` so the selected end date is inclusive.
+  if (toExclusive) {
+    toExclusive.setUTCDate(toExclusive.getUTCDate() + 1);
+  }
 
   if (familyId !== undefined) {
     await ensureUserCanUseFamily(userId, familyId);
@@ -197,12 +207,19 @@ export async function listTransactionsForUser(
         ? {
             occurredAt: {
               ...(from ? { gte: from } : {}),
-              ...(to ? { lte: to } : {}),
+              ...(toExclusive ? { lt: toExclusive } : {}),
             },
           }
         : {}),
     },
     include: {
+      shares: true,
+      sharingProfile: {
+        select: {
+          id: true,
+          name: true,
+        },
+      },
       plaidAccount: {
         select: {
           id: true,
@@ -281,6 +298,15 @@ export async function getTransactionForUserById(
         },
       ],
     },
+    include: {
+      shares: true,
+      sharingProfile: {
+        select: {
+          id: true,
+          name: true,
+        },
+      },
+    },
   });
 }
 
@@ -290,11 +316,14 @@ export async function getTransactionForUserById(
 // This converts all supported inputs into one write shape:
 // - sharingProfileId: use a saved preset
 // - shareTargets: use explicit mixed targets
-// - no sharing input: try the user's default transaction profile
+// - no sharing input on create: try the user's default transaction profile
 // - legacy fields: keep existing family/group/specific-user callers working
+// Updates call this with useDefaultProfile=false so editing a normal field does
+// not silently re-share a personal transaction through the user's default preset.
 async function resolveTransactionSharing(
   userId: number,
-  input: CreateTransactionInput,
+  input: CreateTransactionInput | UpdateTransactionInput,
+  options: { useDefaultProfile: boolean },
 ) {
   if (input.sharingProfileId) {
     const { profile, targets } = await getSharingProfileTargetsForUser(
@@ -315,6 +344,7 @@ async function resolveTransactionSharing(
   }
 
   if (
+    options.useDefaultProfile &&
     !input.visibility &&
     !input.familyId &&
     !input.friendGroupId &&
@@ -330,6 +360,8 @@ async function resolveTransactionSharing(
     input.visibility ?? (input.familyId ? "FAMILY" : "PERSONAL");
   const legacyTargets: NormalizedShareTarget[] = [];
 
+  // Legacy visibility fields support older callers and simple forms that do not
+  // yet send generic shareTargets. They are translated into the same target list.
   if (visibility === "FAMILY") {
     const familyId = input.familyId ?? (await getDefaultFamilyIdForUser(userId));
     if (!familyId) {
@@ -378,6 +410,8 @@ function buildSharingData(
   const userTargets = targets.filter((target) => target.targetType === "USER");
   const targetCount = targets.length;
 
+  // Pick the most specific visibility label possible. Mixed targets become
+  // CUSTOM, but the actual access still comes from the TransactionShare rows.
   const visibility =
     requestedVisibility ??
     (targetCount === 0
@@ -410,24 +444,77 @@ export async function updateTransactionForUserById(
   transactionId: TransactionId,
   data: UpdateTransactionInput,
 ) {
-  // Sharing updates will get their own flow later; for now, strip API-only share
-  // fields so Prisma only receives columns that exist on Transaction.
   const transactionData = { ...data };
   delete transactionData.shareTargets;
   delete transactionData.sharedUserIds;
+
+  // Only rebuild share rows when the request includes a sharing field. This
+  // prevents a normal edit from wiping or changing existing share settings.
+  const hasSharingUpdate =
+    "visibility" in data ||
+    "sharingProfileId" in data ||
+    "familyId" in data ||
+    "friendGroupId" in data ||
+    "shareTargets" in data ||
+    "sharedUserIds" in data;
+
   const existing = await prisma.transaction.findFirst({
     where: {
       id: transactionId,
       createdByUserId: userId,
     },
-    select: { id: true },
+    select: { id: true, familyId: true },
   });
 
   if (!existing) return null;
 
-  return prisma.transaction.update({
-    where: { id: transactionId },
-    data: transactionData,
+  const sharing = hasSharingUpdate
+    ? await resolveTransactionSharing(userId, data, {
+        useDefaultProfile: false,
+      })
+    : null;
+  const nextFamilyId = sharing ? sharing.familyId : existing.familyId;
+
+  if (data.categoryId) {
+    await ensureCategoryBelongsToFamily(data.categoryId, nextFamilyId);
+  }
+
+  return prisma.$transaction(async (tx) => {
+    if (sharing) {
+      // Sharing updates replace the target set as a whole, matching how the
+      // profile/modal UI submits the desired final state.
+      await tx.transactionShare.deleteMany({
+        where: { transactionId },
+      });
+    }
+
+    return tx.transaction.update({
+      where: { id: transactionId },
+      data: {
+        ...transactionData,
+        ...(sharing
+          ? {
+              visibility: sharing.visibility,
+              familyId: sharing.familyId,
+              friendGroupId: sharing.friendGroupId,
+              sharingProfileId: sharing.sharingProfileId,
+              shares:
+                sharing.targets.length > 0
+                  ? { createMany: { data: sharing.targets } }
+                  : undefined,
+            }
+          : {}),
+      },
+      include: {
+        shares: true,
+        sharingProfile: {
+          select: {
+            id: true,
+            name: true,
+          },
+        },
+      },
+    });
   });
 }
 
