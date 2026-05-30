@@ -1,5 +1,7 @@
 "use client";
 
+/* eslint-disable react-hooks/set-state-in-effect */
+
 import { useState, useEffect, useMemo } from "react";
 import {
   CreateTransactionSchema,
@@ -9,6 +11,12 @@ import {
   type Transaction,
 } from "@/src/shared/validators/transactions";
 import { formatMoney } from "@/src/shared/utils/format";
+
+type SharingProfileOption = {
+  id: number;
+  name: string;
+  isDefault: boolean;
+};
 
 type Props = {
   isOpen: boolean;
@@ -41,6 +49,10 @@ export default function TransactionModal({
   const [merchant, setMerchant] = useState("");
   const [note, setNote] = useState("");
   const [occurredAt, setOccurredAt] = useState(""); // use datetime-local string
+  const [sharingSelection, setSharingSelection] = useState("default");
+  const [sharingProfiles, setSharingProfiles] = useState<SharingProfileOption[]>(
+    [],
+  );
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -70,6 +82,11 @@ export default function TransactionModal({
       setMerchant(transaction.merchant ?? "");
       setNote(transaction.note ?? "");
       setOccurredAt(toDateTimeLocalString(new Date(transaction.occurredAt)));
+      setSharingSelection(
+        transaction.sharingProfileId
+          ? `profile:${transaction.sharingProfileId}`
+          : "keep",
+      );
     } else {
       // CREATE: Reset to defaults
       setType(defaultType);
@@ -77,8 +94,42 @@ export default function TransactionModal({
       setMerchant("");
       setNote("");
       setOccurredAt("");
+      setSharingSelection("default");
     }
   }, [defaultType, isOpen, transaction]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+
+    let cancelled = false;
+
+    async function loadSharingProfiles() {
+      try {
+        const res = await fetch("/api/sharing-profiles", {
+          credentials: "include",
+        });
+        const body = await res.json().catch(() => ({}));
+
+        if (
+          !cancelled &&
+          res.ok &&
+          Array.isArray(body.sharingProfiles)
+        ) {
+          setSharingProfiles(body.sharingProfiles);
+        }
+      } catch (error) {
+        if (!cancelled) {
+          console.error("Failed to load sharing profiles:", error);
+        }
+      }
+    }
+
+    loadSharingProfiles();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [isOpen]);
 
   if (!isOpen) return null;
 
@@ -148,6 +199,11 @@ export default function TransactionModal({
           occurredAt: occurredAtDate,
           merchant: merchant.trim() ? merchant.trim() : undefined,
           note: note.trim() ? note.trim() : undefined,
+          ...(sharingSelection === "personal"
+            ? { visibility: "PERSONAL" as const }
+            : sharingSelection.startsWith("profile:")
+              ? { sharingProfileId: Number(sharingSelection.split(":")[1]) }
+              : {}),
         };
 
         const parsed = CreateTransactionSchema.safeParse(payload);
@@ -183,6 +239,11 @@ export default function TransactionModal({
           occurredAt: occurredAtDate,
           merchant: merchant.trim() ? merchant.trim() : undefined,
           note: note.trim() ? note.trim() : undefined,
+          ...(sharingSelection === "personal"
+            ? { visibility: "PERSONAL" as const }
+            : sharingSelection.startsWith("profile:")
+              ? { sharingProfileId: Number(sharingSelection.split(":")[1]) }
+              : {}),
         };
 
         const parsed = UpdateTransactionSchema.safeParse(patchPayload);
@@ -358,6 +419,33 @@ export default function TransactionModal({
               className="w-full rounded-xl border border-border bg-raised-bg px-3 py-2 text-sm outline-none focus:border-border-hover"
             />
             <p className="text-xs text-muted-text">Leave empty to use “now”.</p>
+          </div>
+
+          {/* Sharing preset */}
+          <div className="space-y-2">
+            <label className="text-sm font-medium text-primary-text">
+              Sharing
+            </label>
+            <select
+              value={sharingSelection}
+              onChange={(event) => setSharingSelection(event.target.value)}
+              className="w-full rounded-xl border border-border bg-raised-bg px-3 py-2 text-sm outline-none focus:border-border-hover"
+            >
+              {isEdit && <option value="keep">Keep current sharing</option>}
+              {!isEdit && (
+                <option value="default">Use default sharing profile</option>
+              )}
+              <option value="personal">Personal only</option>
+              {sharingProfiles.map((profile) => (
+                <option key={profile.id} value={`profile:${profile.id}`}>
+                  {profile.name}
+                  {profile.isDefault ? " (default)" : ""}
+                </option>
+              ))}
+            </select>
+            <p className="text-xs text-muted-text">
+              Saved profiles let new entries share to the same people quickly.
+            </p>
           </div>
 
           <div className="flex gap-2">
