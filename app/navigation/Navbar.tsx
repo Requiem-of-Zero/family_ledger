@@ -1,9 +1,11 @@
 "use client";
 
+/* eslint-disable react-hooks/set-state-in-effect */
+
 import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, type ReactNode } from "react";
 import { useTheme } from "../theme/ThemeProvider";
 
 type NavItem = {
@@ -37,6 +39,7 @@ type FriendNotification = {
 
 type FamilySummary = {
   id: number;
+  name?: string;
 };
 
 type FamilyFriendNotification = {
@@ -44,15 +47,56 @@ type FamilyFriendNotification = {
   addresseeFamilyId: number;
 };
 
+type SharingProfileSummary = {
+  id: number;
+  name: string;
+  isDefault: boolean;
+  targets: Array<{
+    targetType: "FAMILY" | "FRIEND_GROUP" | "USER";
+    familyId?: number | null;
+    friendGroupId?: number | null;
+    userId?: number | null;
+  }>;
+};
+
+type FriendRelationshipSummary = {
+  status: string;
+  friend: {
+    id: number;
+    email: string;
+    username: string;
+  };
+};
+
+type FriendGroupSummary = {
+  id: number;
+  name: string;
+  members: Array<{
+    user: {
+      id: number;
+      username: string;
+    };
+  }>;
+};
+
+type ShareTargetDraft = {
+  targetType: "FAMILY" | "FRIEND_GROUP" | "USER";
+  familyId?: number;
+  friendGroupId?: number;
+  userId?: number;
+};
+
 export default function NavBar() {
   const pathname = usePathname();
   const { theme } = useTheme();
   const notificationMenuRef = useRef<HTMLDivElement | null>(null);
+  const mobileMenuRef = useRef<HTMLDivElement | null>(null);
 
   // Current user state
   const [me, setMe] = useState<MeUser | null>(null);
   const [isLoadingMe, setIsLoadingMe] = useState(true);
   const [isNotificationMenuOpen, setIsNotificationMenuOpen] = useState(false);
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [notificationCounts, setNotificationCounts] = useState({
     friends: 0,
     families: 0,
@@ -187,9 +231,32 @@ export default function NavBar() {
     };
   }, [isNotificationMenuOpen]);
 
+  useEffect(() => {
+    setIsMobileMenuOpen(false);
+  }, [pathname]);
+
+  useEffect(() => {
+    if (!isMobileMenuOpen) return;
+
+    function handlePointerDown(event: PointerEvent) {
+      if (
+        mobileMenuRef.current &&
+        !mobileMenuRef.current.contains(event.target as Node)
+      ) {
+        setIsMobileMenuOpen(false);
+      }
+    }
+
+    document.addEventListener("pointerdown", handlePointerDown);
+
+    return () => {
+      document.removeEventListener("pointerdown", handlePointerDown);
+    };
+  }, [isMobileMenuOpen]);
+
   return (
     <header className="sticky top-0 z-40 border-b border-border bg-surface-bg/90 backdrop-blur">
-      <div className="mx-auto flex w-full max-w-3xl items-center justify-between px-4 py-3">
+      <div className="mx-auto flex w-full max-w-6xl items-center justify-between px-4 py-3">
         {/* Brand */}
         <Link
           href={brandHref}
@@ -222,7 +289,7 @@ export default function NavBar() {
         </Link>
 
         {/* Links */}
-        <nav className="flex items-center gap-2">
+        <nav className="hidden items-center gap-2 md:flex">
           {navItems.map((item) => {
             const active =
               pathname === item.href || pathname.startsWith(item.href + "/");
@@ -242,6 +309,8 @@ export default function NavBar() {
               </Link>
             );
           })}
+
+          {!isLoadingMe && me && <SharingProfilesMenu />}
 
           {/* User Display - Show username or email when logged in */}
           {!isLoadingMe && me && (
@@ -306,6 +375,75 @@ export default function NavBar() {
           {!isLoadingMe && me && <ProfileBubble user={me} />}
 
         </nav>
+
+        <div ref={mobileMenuRef} className="relative md:hidden">
+          <button
+            type="button"
+            aria-label="Open navigation menu"
+            aria-expanded={isMobileMenuOpen}
+            onClick={() => setIsMobileMenuOpen((isOpen) => !isOpen)}
+            className="grid h-10 w-10 place-items-center rounded-xl border border-border bg-raised-bg text-primary-text hover:border-border-hover"
+          >
+            <svg
+              aria-hidden="true"
+              viewBox="0 0 24 24"
+              className="h-5 w-5"
+              fill="none"
+              stroke="currentColor"
+              strokeLinecap="round"
+              strokeWidth="2"
+            >
+              <path d="M4 7h16" />
+              <path d="M4 12h16" />
+              <path d="M4 17h16" />
+            </svg>
+          </button>
+
+          {isMobileMenuOpen && (
+            <div className="absolute right-0 top-full z-50 mt-2 w-72 rounded-xl border border-border bg-surface-bg p-3 text-sm shadow-lg">
+              <div className="grid gap-2">
+                {navItems.map((item) => {
+                  const active =
+                    pathname === item.href ||
+                    pathname.startsWith(item.href + "/");
+
+                  return (
+                    <Link
+                      key={item.href}
+                      href={item.href}
+                      className={[
+                        "rounded-xl px-3 py-2 font-semibold transition",
+                        active
+                          ? "bg-raised-bg text-primary-text"
+                          : "text-muted-text hover:bg-raised-bg hover:text-primary-text",
+                      ].join(" ")}
+                    >
+                      {item.label}
+                    </Link>
+                  );
+                })}
+
+                {!isLoadingMe && me && (
+                  <>
+                    <Link
+                      href="/profile#requests"
+                      className="rounded-xl border border-border bg-raised-bg px-3 py-2 font-semibold text-primary-text"
+                    >
+                      Notifications ({notificationTotal})
+                    </Link>
+                    <SharingProfilesMenu compact />
+                    <Link
+                      href="/profile"
+                      className="rounded-xl border border-border bg-raised-bg px-3 py-2 font-semibold text-primary-text"
+                    >
+                      Profile
+                    </Link>
+                  </>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
       </div>
     </header>
   );
@@ -367,6 +505,347 @@ function ProfileBubble({ user }: { user: MeUser }) {
         </div>
       </div>
     </div>
+  );
+}
+
+function SharingProfilesMenu({ compact = false }: { compact?: boolean }) {
+  const menuRef = useRef<HTMLDivElement | null>(null);
+
+  // Profile builder state lives in the navbar for now so users can create quick
+  // transaction presets without leaving the current ledger page.
+  const [isOpen, setIsOpen] = useState(false);
+  const [profiles, setProfiles] = useState<SharingProfileSummary[]>([]);
+  const [families, setFamilies] = useState<FamilySummary[]>([]);
+  const [friends, setFriends] = useState<FriendRelationshipSummary[]>([]);
+  const [friendGroups, setFriendGroups] = useState<FriendGroupSummary[]>([]);
+  const [profileName, setProfileName] = useState("");
+  const [isDefaultProfile, setIsDefaultProfile] = useState(false);
+  const [selectedTargets, setSelectedTargets] = useState<ShareTargetDraft[]>([]);
+  const [isCreating, setIsCreating] = useState(false);
+
+  // Load every target type the user is allowed to share with. The backend still
+  // re-authorizes these ids on save; this just builds the checkbox list.
+  async function loadProfiles() {
+    const [profilesRes, familiesRes, friendsRes, friendGroupsRes] =
+      await Promise.all([
+      fetch("/api/sharing-profiles", { credentials: "include" }),
+      fetch("/api/families", { credentials: "include" }),
+      fetch("/api/friends", { credentials: "include" }),
+      fetch("/api/friend-groups", { credentials: "include" }),
+    ]);
+    const profilesBody = await profilesRes.json().catch(() => ({}));
+    const familiesBody = await familiesRes.json().catch(() => ({}));
+    const friendsBody = await friendsRes.json().catch(() => ({}));
+    const friendGroupsBody = await friendGroupsRes.json().catch(() => ({}));
+
+    if (profilesRes.ok && Array.isArray(profilesBody.sharingProfiles)) {
+      setProfiles(profilesBody.sharingProfiles);
+    }
+
+    if (familiesRes.ok && Array.isArray(familiesBody.families)) {
+      setFamilies(familiesBody.families);
+    }
+
+    if (friendsRes.ok && Array.isArray(friendsBody.friends)) {
+      setFriends(
+        friendsBody.friends.filter(
+          (friend: FriendRelationshipSummary) => friend.status === "ACCEPTED",
+        ),
+      );
+    }
+
+    if (
+      friendGroupsRes.ok &&
+      Array.isArray(friendGroupsBody.friendGroups)
+    ) {
+      setFriendGroups(friendGroupsBody.friendGroups);
+    }
+  }
+
+  useEffect(() => {
+    if (!isOpen) return;
+
+    let cancelled = false;
+
+    loadProfiles().catch((error) => {
+      if (!cancelled) console.error("Failed to load sharing profiles:", error);
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [isOpen]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+
+    function handlePointerDown(event: PointerEvent) {
+      if (
+        menuRef.current &&
+        !menuRef.current.contains(event.target as Node)
+      ) {
+        setIsOpen(false);
+      }
+    }
+
+    document.addEventListener("pointerdown", handlePointerDown);
+
+    return () => document.removeEventListener("pointerdown", handlePointerDown);
+  }, [isOpen]);
+
+  // A target key lets the picker dedupe mixed target types without comparing
+  // object references from React state.
+  function shareTargetKey(target: ShareTargetDraft) {
+    if (target.targetType === "FAMILY") return `FAMILY:${target.familyId}`;
+    if (target.targetType === "FRIEND_GROUP") {
+      return `FRIEND_GROUP:${target.friendGroupId}`;
+    }
+    return `USER:${target.userId}`;
+  }
+
+  function toggleShareTarget(target: ShareTargetDraft) {
+    const key = shareTargetKey(target);
+
+    setSelectedTargets((currentTargets) =>
+      currentTargets.some((currentTarget) => shareTargetKey(currentTarget) === key)
+        ? currentTargets.filter(
+            (currentTarget) => shareTargetKey(currentTarget) !== key,
+          )
+        : [...currentTargets, target],
+    );
+  }
+
+  function isShareTargetSelected(target: ShareTargetDraft) {
+    const key = shareTargetKey(target);
+    return selectedTargets.some(
+      (currentTarget) => shareTargetKey(currentTarget) === key,
+    );
+  }
+
+  async function createSharingProfile() {
+    const name = profileName.trim();
+    if (!name || selectedTargets.length === 0) return;
+
+    setIsCreating(true);
+
+    try {
+      // The selected targets are stored as a reusable SharingProfileTarget set.
+      // Transactions can later reference this profile by id from the modal.
+      const res = await fetch("/api/sharing-profiles", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          name,
+          resourceType: "TRANSACTION",
+          isDefault: isDefaultProfile,
+          targets: selectedTargets,
+        }),
+      });
+
+      if (res.ok) {
+        setProfileName("");
+        setIsDefaultProfile(false);
+        setSelectedTargets([]);
+        await loadProfiles();
+      }
+    } finally {
+      setIsCreating(false);
+    }
+  }
+
+  return (
+    <div ref={menuRef} className={compact ? "relative" : "relative"}>
+      <button
+        type="button"
+        onClick={() => setIsOpen((open) => !open)}
+        className={[
+          "rounded-xl border border-border bg-raised-bg px-3 py-2 text-sm font-semibold text-primary-text hover:border-border-hover",
+          compact ? "w-full text-left" : "",
+        ].join(" ")}
+      >
+        Sharing
+      </button>
+
+      {isOpen && (
+        <div
+          className={[
+            "z-50 mt-2 w-72 rounded-xl border border-border bg-surface-bg p-3 text-sm shadow-lg",
+            compact ? "relative" : "absolute right-0 top-full",
+          ].join(" ")}
+        >
+          <div className="font-semibold text-primary-text">
+            Sharing profiles
+          </div>
+          <p className="mt-1 text-xs text-muted-text">
+            Build presets from families, friend groups, and specific friends.
+          </p>
+          <div className="mt-2 grid gap-2">
+            {profiles.length === 0 ? (
+              <div className="rounded-lg border border-border bg-raised-bg px-3 py-2 text-muted-text">
+                No profiles yet.
+              </div>
+            ) : (
+              profiles.map((profile) => (
+                <div
+                  key={profile.id}
+                  className="rounded-lg border border-border bg-raised-bg px-3 py-2"
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="font-semibold text-primary-text">
+                      {profile.name}
+                    </span>
+                    {profile.isDefault && (
+                      <span className="rounded-full bg-primary px-2 py-0.5 text-[10px] font-bold text-primary-fg">
+                        Default
+                      </span>
+                    )}
+                  </div>
+                  <div className="mt-1 text-xs text-muted-text">
+                    {profile.targets.length} target
+                    {profile.targets.length === 1 ? "" : "s"}
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+
+          <div className="mt-3 border-t border-border pt-3">
+            <div className="font-semibold text-primary-text">
+              New profile
+            </div>
+            <input
+              value={profileName}
+              onChange={(event) => setProfileName(event.target.value)}
+              placeholder="Profile name"
+              className="mt-2 w-full rounded-lg border border-border bg-raised-bg px-3 py-2 text-sm outline-none focus:border-border-hover"
+            />
+            <label className="mt-2 flex items-center gap-2 text-xs text-muted-text">
+              <input
+                type="checkbox"
+                checked={isDefaultProfile}
+                onChange={(event) => setIsDefaultProfile(event.target.checked)}
+                className="h-4 w-4 accent-primary"
+              />
+              Use as default for new transactions
+            </label>
+
+            <ShareTargetSection title="Families">
+              {families.map((family) => (
+                <ShareTargetCheckbox
+                  key={family.id}
+                  label={family.name ?? `Family ${family.id}`}
+                  checked={isShareTargetSelected({
+                    targetType: "FAMILY",
+                    familyId: family.id,
+                  })}
+                  onChange={() =>
+                    toggleShareTarget({
+                      targetType: "FAMILY",
+                      familyId: family.id,
+                    })
+                  }
+                />
+              ))}
+            </ShareTargetSection>
+
+            <ShareTargetSection title="Friend groups">
+              {friendGroups.map((group) => (
+                <ShareTargetCheckbox
+                  key={group.id}
+                  label={`${group.name} (${group.members.length})`}
+                  checked={isShareTargetSelected({
+                    targetType: "FRIEND_GROUP",
+                    friendGroupId: group.id,
+                  })}
+                  onChange={() =>
+                    toggleShareTarget({
+                      targetType: "FRIEND_GROUP",
+                      friendGroupId: group.id,
+                    })
+                  }
+                />
+              ))}
+            </ShareTargetSection>
+
+            <ShareTargetSection title="Friends">
+              {friends.map((friend) => (
+                <ShareTargetCheckbox
+                  key={friend.friend.id}
+                  label={friend.friend.username || friend.friend.email}
+                  checked={isShareTargetSelected({
+                    targetType: "USER",
+                    userId: friend.friend.id,
+                  })}
+                  onChange={() =>
+                    toggleShareTarget({
+                      targetType: "USER",
+                      userId: friend.friend.id,
+                    })
+                  }
+                />
+              ))}
+            </ShareTargetSection>
+          </div>
+
+          <button
+            type="button"
+            disabled={
+              !profileName.trim() ||
+              selectedTargets.length === 0 ||
+              isCreating
+            }
+            onClick={createSharingProfile}
+            className="mt-3 w-full rounded-lg border border-border bg-raised-bg px-3 py-2 text-xs font-semibold text-primary-text hover:border-border-hover disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {isCreating ? "Creating..." : "Create sharing profile"}
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ShareTargetSection({
+  title,
+  children,
+}: {
+  title: string;
+  children: ReactNode;
+}) {
+  return (
+    <div className="mt-3">
+      <div className="mb-1 text-xs font-semibold text-muted-text">{title}</div>
+      <div className="grid max-h-28 gap-1 overflow-y-auto pr-1">
+        {children || (
+          <div className="rounded-lg border border-border bg-raised-bg px-3 py-2 text-xs text-muted-text">
+            None available
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function ShareTargetCheckbox({
+  label,
+  checked,
+  onChange,
+}: {
+  label: string;
+  checked: boolean;
+  onChange: () => void;
+}) {
+  return (
+    <label className="flex items-center gap-2 rounded-lg border border-border bg-raised-bg px-3 py-2 text-xs text-primary-text">
+      <input
+        type="checkbox"
+        checked={checked}
+        onChange={onChange}
+        className="h-4 w-4 accent-primary"
+      />
+      <span className="min-w-0 truncate">{label}</span>
+    </label>
   );
 }
 
