@@ -5,7 +5,6 @@ import { prisma } from "@/src/server/db/prisma";
 import { createAuthRequest } from "@/src/shared/utils/api";
 import { formatDate } from "@/src/shared/utils/format";
 import ConnectedBankList from "./ConnectedBankList";
-import FriendRequestManager from "./FriendRequestManager";
 import ProfileBankConnect from "./ProfileBankConnect";
 import ProfileLogoutButton from "./ProfileLogoutButton";
 import ProfilePhotoUploader from "./ProfilePhotoUploader";
@@ -159,65 +158,11 @@ export default async function ProfilePage() {
       relationship.status === "PENDING" &&
       relationship.direction === "RECEIVED",
   );
-  const outgoingFriendRequests = normalizedFriends.filter(
-    (relationship) =>
-      relationship.status === "PENDING" && relationship.direction === "SENT",
-  );
-  const blockedFriends = normalizedFriends.filter(
-    (relationship) => relationship.status === "BLOCKED",
-  );
   const socialVisibilityProps = {
     initialShowFriends: user.showFriendsOnProfile,
     initialShowFriendGroups: user.showFriendGroupsOnProfile,
-    friends: acceptedFriends.map((relationship) => ({
-      id: relationship.friend.id,
-      username: relationship.friend.username,
-      email: relationship.friend.email,
-    })),
-    friendGroups: friendGroups.map((group) => ({
-      id: group.id,
-      name: group.name,
-      memberCount: group.members.length,
-      members: group.members.map((member) => member.user.username),
-    })),
-  };
-  // Keep client props small and already formatted. The interactive manager only
-  // needs ids, display text, and action eligibility from the server snapshot.
-  const friendManagerProps = {
-    incomingFriendRequests: incomingFriendRequests.map((relationship) => ({
-      id: relationship.id,
-      status: relationship.status,
-      direction: relationship.direction,
-      title: relationship.friend.username,
-      subtitle: relationship.friend.email,
-      meta: `Requested ${formatDate(relationship.createdAt)}`,
-    })),
-    outgoingFriendRequests: outgoingFriendRequests.map((relationship) => ({
-      id: relationship.id,
-      status: relationship.status,
-      direction: relationship.direction,
-      title: relationship.friend.username,
-      subtitle: relationship.friend.email,
-      meta: `Sent ${formatDate(relationship.createdAt)}`,
-    })),
-    acceptedFriends: acceptedFriends.map((relationship) => ({
-      id: relationship.id,
-      status: relationship.status,
-      direction: relationship.direction,
-      title: relationship.friend.username,
-      subtitle: relationship.friend.email,
-      meta: relationship.acceptedAt
-        ? `Accepted ${formatDate(relationship.acceptedAt)}`
-        : "Accepted",
-    })),
-    blockedFriends: blockedFriends.map((relationship) => ({
-      id: relationship.id,
-      status: relationship.status,
-      direction: relationship.direction,
-      title: relationship.friend.username,
-      subtitle: relationship.friend.email,
-      meta: "Blocked",
-    })),
+    friendCount: acceptedFriends.length,
+    friendGroupCount: friendGroups.length,
   };
   const notificationCount = incomingFriendRequests.length;
   const canUploadProfilePhoto = !user.oauthAccounts.some(
@@ -244,8 +189,7 @@ export default async function ProfilePage() {
             </div>
           </div>
           <p className="mt-2 text-sm text-muted-text">
-            Manage account details, social visibility, friends, and connected
-            banks.
+            Manage account details, social visibility, and connected banks.
           </p>
         </div>
         <div className="rounded-xl border border-border bg-surface-bg px-4 py-3">
@@ -295,10 +239,7 @@ export default async function ProfilePage() {
           </dl>
         </div>
 
-        {/* User-to-user friend requests and accepted friends. */}
-        <FriendRequestManager {...friendManagerProps} />
-
-        {/* Personal social visibility stays on profile; family management lives on /family. */}
+        {/* Personal visibility settings stay on profile; relationship details live on dashboards. */}
         <SocialVisibilityPanel {...socialVisibilityProps} />
 
         {/* Bank connection status and connected Plaid accounts. */}

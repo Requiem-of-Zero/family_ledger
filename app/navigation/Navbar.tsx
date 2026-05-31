@@ -15,7 +15,6 @@ type NavItem = {
 
 const AUTH_NAV: NavItem[] = [
   { href: "/transactions", label: "Transactions" },
-  { href: "/family", label: "Family" },
   /*
    * Add later:
    * {href: "/categories", label: "categories"}
@@ -362,11 +361,18 @@ export default function NavBar() {
                     <div>{notificationCounts.families} family requests</div>
                   </div>
                   <Link
-                    href="/profile#requests"
+                    href="/friends#requests"
                     onClick={() => setIsNotificationMenuOpen(false)}
                     className="mt-3 block rounded-lg border border-border bg-raised-bg px-3 py-2 text-xs font-semibold text-primary-text hover:border-border-hover"
                   >
-                    Open profile requests
+                    Open friend requests
+                  </Link>
+                  <Link
+                    href="/family"
+                    onClick={() => setIsNotificationMenuOpen(false)}
+                    className="mt-2 block rounded-lg border border-border bg-raised-bg px-3 py-2 text-xs font-semibold text-primary-text hover:border-border-hover"
+                  >
+                    Open family dashboard
                   </Link>
                 </div>
               </div>
@@ -427,7 +433,7 @@ export default function NavBar() {
                 {!isLoadingMe && me && (
                   <>
                     <Link
-                      href="/profile#requests"
+                      href="/friends#requests"
                       className="rounded-xl border border-border bg-raised-bg px-3 py-2 font-semibold text-primary-text"
                     >
                       Notifications ({notificationTotal})
@@ -438,6 +444,18 @@ export default function NavBar() {
                       className="rounded-xl border border-border bg-raised-bg px-3 py-2 font-semibold text-primary-text"
                     >
                       Profile
+                    </Link>
+                    <Link
+                      href="/friends"
+                      className="rounded-xl border border-border bg-raised-bg px-3 py-2 font-semibold text-primary-text"
+                    >
+                      Friends
+                    </Link>
+                    <Link
+                      href="/family"
+                      className="rounded-xl border border-border bg-raised-bg px-3 py-2 font-semibold text-primary-text"
+                    >
+                      Family
                     </Link>
                   </>
                 )}
@@ -503,6 +521,20 @@ function ProfileBubble({ user }: { user: MeUser }) {
           >
             View profile
           </Link>
+          <div className="mt-2 grid grid-cols-2 gap-2">
+            <Link
+              href="/friends"
+              className="rounded-lg border border-border bg-raised-bg px-3 py-2 text-center text-xs font-semibold text-primary-text hover:border-border-hover"
+            >
+              Friends
+            </Link>
+            <Link
+              href="/family"
+              className="rounded-lg border border-border bg-raised-bg px-3 py-2 text-center text-xs font-semibold text-primary-text hover:border-border-hover"
+            >
+              Family
+            </Link>
+          </div>
         </div>
       </div>
     </div>

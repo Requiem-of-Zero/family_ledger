@@ -1,31 +1,17 @@
 "use client";
 
-import type { ReactNode } from "react";
 import { useState, useTransition } from "react";
 
-type VisibleFriend = {
-  id: number;
-  username: string;
-  email: string;
-};
-
-type VisibleFriendGroup = {
-  id: number;
-  name: string;
-  memberCount: number;
-  members: string[];
-};
-
 type SocialVisibilityPanelProps = {
-  friends: VisibleFriend[];
-  friendGroups: VisibleFriendGroup[];
+  friendCount: number;
+  friendGroupCount: number;
   initialShowFriends: boolean;
   initialShowFriendGroups: boolean;
 };
 
 export default function SocialVisibilityPanel({
-  friends,
-  friendGroups,
+  friendCount,
+  friendGroupCount,
   initialShowFriends,
   initialShowFriendGroups,
 }: SocialVisibilityPanelProps) {
@@ -109,50 +95,17 @@ export default function SocialVisibilityPanel({
 
       {message && <p className="mt-3 text-xs text-muted-text">{message}</p>}
 
-      <div className="mt-4 grid gap-3 md:grid-cols-2">
-        {showFriends && (
-          <SocialList title="Friends" emptyMessage="No accepted friends yet.">
-            {friends.map((friend) => (
-              <div
-                key={friend.id}
-                className="rounded-xl border border-border bg-raised-bg px-3 py-3"
-              >
-                <div className="font-semibold text-primary-text">
-                  {friend.username}
-                </div>
-                <div className="mt-1 text-xs text-muted-text">
-                  {friend.email}
-                </div>
-              </div>
-            ))}
-          </SocialList>
-        )}
-
-        {showFriendGroups && (
-          <SocialList
-            title="Friend groups"
-            emptyMessage="No friend groups yet."
-          >
-            {friendGroups.map((group) => (
-              <div
-                key={group.id}
-                className="rounded-xl border border-border bg-raised-bg px-3 py-3"
-              >
-                <div className="flex items-center justify-between gap-3">
-                  <div className="font-semibold text-primary-text">
-                    {group.name}
-                  </div>
-                  <span className="text-xs text-muted-text">
-                    {group.memberCount} members
-                  </span>
-                </div>
-                <div className="mt-1 text-xs text-muted-text">
-                  {group.members.join(", ") || "No members"}
-                </div>
-              </div>
-            ))}
-          </SocialList>
-        )}
+      <div className="mt-4 grid gap-3 sm:grid-cols-2">
+        <VisibilitySummary
+          enabled={showFriends}
+          label="Friends"
+          value={friendCount}
+        />
+        <VisibilitySummary
+          enabled={showFriendGroups}
+          label="Friend groups"
+          value={friendGroupCount}
+        />
       </div>
     </section>
   );
@@ -187,28 +140,27 @@ function VisibilityToggle({
   );
 }
 
-function SocialList({
-  children,
-  emptyMessage,
-  title,
+function VisibilitySummary({
+  enabled,
+  label,
+  value,
 }: {
-  children: ReactNode;
-  emptyMessage: string;
-  title: string;
+  enabled: boolean;
+  label: string;
+  value: number;
 }) {
-  const items = Array.isArray(children) ? children : [children];
-
   return (
-    <div>
-      <h3 className="text-sm font-semibold text-primary-text">{title}</h3>
-      <div className="mt-3 grid gap-2">
-        {items.length > 0 ? (
-          children
-        ) : (
-          <div className="rounded-xl border border-border bg-raised-bg px-3 py-3 text-sm text-muted-text">
-            {emptyMessage}
+    <div className="rounded-xl border border-border bg-raised-bg px-3 py-3">
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <div className="text-sm font-semibold text-primary-text">{label}</div>
+          <div className="mt-1 text-xs text-muted-text">
+            {enabled ? "Visible on profile" : "Hidden on profile"}
           </div>
-        )}
+        </div>
+        <div className="text-2xl font-semibold text-primary-text">
+          {value}
+        </div>
       </div>
     </div>
   );
