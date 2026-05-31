@@ -71,6 +71,25 @@ describe("auth.service", () => {
     ).rejects.toMatchObject({ status: 409 });
   });
 
+  it("register rejects duplicate username", async () => {
+    await register({
+      email: "sam@example.com",
+      username: "sungjinwong",
+      password: "password123",
+    });
+
+    await expect(
+      register({
+        email: "sam2@example.com",
+        username: "sungjinwong",
+        password: "password123",
+      }),
+    ).rejects.toMatchObject({
+      status: 409,
+      message: "Username already in use",
+    });
+  });
+
   it("login rejects unknown email", async () => {
     await expect(
       login({
