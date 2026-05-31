@@ -38,12 +38,21 @@ export type AuthResult = {
 export async function register(input: RegisterInput): Promise<AuthResult> {
   const data = RegisterSchema.parse(input); // Validates and returns typed data
 
-  const existing = await prisma.user.findUnique({
-    // Check db of users for uniqueness
-    where: { email: data.email },
+  const existing = await prisma.user.findFirst({
+    // Email and username are public login/profile identifiers, so both must be unique.
+    where: {
+      OR: [{ email: data.email }, { username: data.username }],
+    },
+    select: { email: true, username: true },
   });
 
-  if (existing) throw new HttpError("Email already in use", 409);
+  if (existing?.email === data.email) {
+    throw new HttpError("Email already in use", 409);
+  }
+
+  if (existing?.username === data.username) {
+    throw new HttpError("Username already in use", 409);
+  }
 
   const passwordHash = await hashPassword(data.password);
 
