@@ -602,6 +602,48 @@ export async function sendFamilyFriendRequest(
   });
 }
 
+export async function sendFamilyFriendRequestToUser(
+  actorUserId: number,
+  requesterFamilyId: number,
+  addresseeIdentifier: string,
+) {
+  // Family friend requests target a family, but humans know people by email or
+  // username. Resolve the entered person to their active owned family first.
+  const identifier = addresseeIdentifier.trim().toLowerCase();
+  const matchingOwnedFamilies = await prisma.familyMember.findMany({
+    where: {
+      memberRole: "OWNER",
+      isActive: true,
+      family: { deletedAt: null },
+      user: {
+        OR: [
+          { email: identifier },
+          { username: addresseeIdentifier.trim() },
+        ],
+      },
+    },
+    select: {
+      familyId: true,
+      family: { select: { name: true } },
+      user: { select: FamilyUserSelect },
+    },
+  });
+
+  if (matchingOwnedFamilies.length === 0) {
+    throw new HttpError("No owned family found for that user", 404);
+  }
+
+  if (matchingOwnedFamilies.length > 1) {
+    throw new HttpError("Multiple users matched; use an email address", 409);
+  }
+
+  return sendFamilyFriendRequest(
+    actorUserId,
+    requesterFamilyId,
+    matchingOwnedFamilies[0].familyId,
+  );
+}
+
 export async function listFamilyFriendRelationshipsForUser(userId: number) {
   // A user sees family-friend rows for every active family they belong to. The
   // UI can later filter this by one selected family if needed.
