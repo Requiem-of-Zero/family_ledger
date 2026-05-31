@@ -5,11 +5,15 @@ import { HttpError } from "@/src/server/services/auth.service";
 import {
   listFamilyFriendRelationshipsForUser,
   sendFamilyFriendRequest,
+  sendFamilyFriendRequestToUser,
 } from "@/src/server/services/families.service";
 
 const SendFamilyFriendRequestSchema = z.object({
   requesterFamilyId: z.coerce.number().int().positive(),
-  addresseeFamilyId: z.coerce.number().int().positive(),
+  addresseeFamilyId: z.coerce.number().int().positive().optional(),
+  addresseeIdentifier: z.string().trim().min(1).max(120).optional(),
+}).refine((body) => body.addresseeFamilyId || body.addresseeIdentifier, {
+  message: "Addressee family id or user identifier is required",
 });
 
 // Collection route: list family-friend rows for every family the user belongs to.
@@ -51,11 +55,17 @@ export async function POST(req: Request) {
       throw new HttpError("Invalid family friend request", 400, body.error.issues);
     }
 
-    const familyFriend = await sendFamilyFriendRequest(
-      user.id,
-      body.data.requesterFamilyId,
-      body.data.addresseeFamilyId,
-    );
+    const familyFriend = body.data.addresseeIdentifier
+      ? await sendFamilyFriendRequestToUser(
+          user.id,
+          body.data.requesterFamilyId,
+          body.data.addresseeIdentifier,
+        )
+      : await sendFamilyFriendRequest(
+          user.id,
+          body.data.requesterFamilyId,
+          body.data.addresseeFamilyId!,
+        );
 
     return NextResponse.json({ familyFriend }, { status: 201 });
   } catch (error) {
