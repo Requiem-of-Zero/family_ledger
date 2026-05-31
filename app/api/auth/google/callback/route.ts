@@ -24,6 +24,36 @@ type GoogleUserInfo = {
   picture?: string;
 };
 
+function normalizeUsername(input: string) {
+  const slug = input
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 40);
+
+  return slug.length >= 5 ? slug : `user-${slug || "google"}`;
+}
+
+async function getAvailableUsername(baseInput: string) {
+  // Google names are not guaranteed to be unique, so derive a readable username
+  // and append a suffix only when another user already owns it.
+  const base = normalizeUsername(baseInput);
+  let candidate = base;
+  let suffix = 2;
+
+  while (
+    await prisma.user.findFirst({
+      where: { username: candidate },
+      select: { id: true },
+    })
+  ) {
+    candidate = `${base.slice(0, 44)}-${suffix}`;
+    suffix += 1;
+  }
+
+  return candidate;
+}
+
 export async function GET(req: Request) {
   const url = new URL(req.url);
   const code = url.searchParams.get("code");
@@ -154,10 +184,14 @@ export async function GET(req: Request) {
 
     // 3) If user doesn't exist, create one (username can be derived)
     if (!dbUser) {
+      const username = await getAvailableUsername(
+        info.name ?? displayName ?? email.split("@")[0],
+      );
+
       dbUser = await tx.user.create({
         data: {
           email,
-          username: info.name ?? displayName,
+          username,
           profileImageUrl: info.picture,
           passwordHash: "OAUTH", // placeholder since you're not using password for this user
           lastLogin: now,
