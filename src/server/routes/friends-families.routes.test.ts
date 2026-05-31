@@ -481,13 +481,14 @@ describe("families and shared ledger routes", () => {
         }),
         body: JSON.stringify({
           requesterFamilyId: ownerFamily.id,
-          addresseeFamilyId: otherFamily.id,
+          addresseeIdentifier: otherOwner.user.email,
         }),
       }),
     );
 
     expect(createRes.status).toBe(201);
     const createBody = await createRes.json();
+    expect(createBody.familyFriend.addresseeFamilyId).toBe(otherFamily.id);
 
     const acceptRes = await acceptFamilyFriendPOST(
       new Request(
