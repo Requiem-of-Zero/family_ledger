@@ -8,6 +8,10 @@ import { POST as loginPOST } from "@/app/api/auth/login/route";
 import { GET as meGET } from "@/app/api/auth/me/route";
 import { POST as logoutPOST } from "@/app/api/auth/logout/route";
 import { GET as googleCallbackGET } from "@/app/api/auth/google/callback/route";
+import {
+  GET as socialVisibilityGET,
+  PATCH as socialVisibilityPATCH,
+} from "@/app/api/profile/social-visibility/route";
 import { SESSION_COOKIE_NAME } from "../auth/constants";
 import { hashSessionToken } from "../auth/session";
 
@@ -167,6 +171,61 @@ describe("auth routes", () => {
     const body = await meRes.json();
 
     expect(body.user.email).toBe("me@example.com");
+  });
+
+  it("GET/PATCH /api/profile/social-visibility reads and saves profile settings", async () => {
+    const regRes = await registerPOST(
+      new Request("http://localhost/api/auth/register", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          email: "visibility@example.com",
+          username: "visible",
+          password: "password123",
+        }),
+      }),
+    );
+    const sessionToken = extractCookieValue(
+      getSetCookie(regRes),
+      SESSION_COOKIE_NAME,
+    );
+    const authHeaders = {
+      cookie: `${SESSION_COOKIE_NAME}=${sessionToken}`,
+    };
+
+    const getRes = await socialVisibilityGET(
+      new Request("http://localhost/api/profile/social-visibility", {
+        method: "GET",
+        headers: authHeaders,
+      }),
+    );
+    const getBody = await getRes.json();
+
+    expect(getRes.status).toBe(200);
+    expect(getBody.socialVisibility).toMatchObject({
+      showFriendsOnProfile: true,
+      showFriendGroupsOnProfile: true,
+    });
+
+    const patchRes = await socialVisibilityPATCH(
+      new Request("http://localhost/api/profile/social-visibility", {
+        method: "PATCH",
+        headers: {
+          ...authHeaders,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          showFriendsOnProfile: false,
+        }),
+      }),
+    );
+    const patchBody = await patchRes.json();
+
+    expect(patchRes.status).toBe(200);
+    expect(patchBody.socialVisibility).toMatchObject({
+      showFriendsOnProfile: false,
+      showFriendGroupsOnProfile: true,
+    });
   });
 
   it("POST /api/auth/logout revokes session and clears cookie", async () => {
