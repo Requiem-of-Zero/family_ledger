@@ -15,6 +15,7 @@ type NavItem = {
 
 const AUTH_NAV: NavItem[] = [
   { href: "/transactions", label: "Transactions" },
+  { href: "/family", label: "Family" },
   /*
    * Add later:
    * {href: "/categories", label: "categories"}

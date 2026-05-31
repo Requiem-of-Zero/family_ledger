@@ -5,12 +5,11 @@ import { prisma } from "@/src/server/db/prisma";
 import { createAuthRequest } from "@/src/shared/utils/api";
 import { formatDate } from "@/src/shared/utils/format";
 import ConnectedBankList from "./ConnectedBankList";
-import FamilyManager from "./FamilyManager";
-import FamilyRequestManager from "./FamilyRequestManager";
 import FriendRequestManager from "./FriendRequestManager";
 import ProfileBankConnect from "./ProfileBankConnect";
 import ProfileLogoutButton from "./ProfileLogoutButton";
 import ProfilePhotoUploader from "./ProfilePhotoUploader";
+import SocialVisibilityPanel from "./SocialVisibilityPanel";
 
 export default async function ProfilePage() {
   // ---------------------------------------------------------------------------
@@ -39,23 +38,10 @@ export default async function ProfilePage() {
       profileImageUrl: true,
       role: true,
       isActive: true,
+      showFriendsOnProfile: true,
+      showFriendGroupsOnProfile: true,
       lastLogin: true,
       createdAt: true,
-      familyMembers: {
-        where: { isActive: true, family: { deletedAt: null } },
-        select: {
-          memberRole: true,
-          joinedAt: true,
-          family: {
-            select: {
-              id: true,
-              name: true,
-              createdAt: true,
-            },
-          },
-        },
-        orderBy: { joinedAt: "asc" },
-      },
       plaidItems: {
         select: {
           id: true,
@@ -86,15 +72,11 @@ export default async function ProfilePage() {
   if (!user) redirect("/login");
 
   // ---------------------------------------------------------------------------
-  // Social And Family Data
+  // Social Data
   // ---------------------------------------------------------------------------
   // Social data is fetched separately from the account query so the profile page
   // can keep account/banking fields narrow while still showing relationship data.
-  const [
-    friendRelationships,
-    familyFriendRelationships,
-    familyJoinRequests,
-  ] = await Promise.all([
+  const [friendRelationships, friendGroups] = await Promise.all([
     prisma.userFriend.findMany({
       where: {
         OR: [{ requesterId: user.id }, { addresseeId: user.id }],
@@ -109,60 +91,22 @@ export default async function ProfilePage() {
       },
       orderBy: [{ status: "asc" }, { createdAt: "desc" }],
     }),
-    prisma.familyFriend.findMany({
+    prisma.friendGroup.findMany({
       where: {
         OR: [
-          {
-            requesterFamily: {
-              members: { some: { userId: user.id, isActive: true } },
-            },
-          },
-          {
-            addresseeFamily: {
-              members: { some: { userId: user.id, isActive: true } },
-            },
-          },
+          { ownerId: user.id },
+          { members: { some: { userId: user.id } } },
         ],
       },
       include: {
-        requesterFamily: {
-          select: { id: true, name: true },
-        },
-        addresseeFamily: {
-          select: { id: true, name: true },
-        },
-      },
-      orderBy: [{ status: "asc" }, { createdAt: "desc" }],
-    }),
-    prisma.familyJoinRequest.findMany({
-      where: {
-        OR: [
-          { addresseeId: user.id },
-          {
-            family: {
-              members: {
-                some: {
-                  userId: user.id,
-                  isActive: true,
-                  memberRole: "OWNER",
-                },
-              },
-            },
+        members: {
+          include: {
+            user: { select: { id: true, username: true } },
           },
-        ],
-      },
-      include: {
-        family: {
-          select: { id: true, name: true },
-        },
-        requester: {
-          select: { id: true, email: true, username: true },
-        },
-        addressee: {
-          select: { id: true, email: true, username: true },
+          orderBy: { addedAt: "asc" },
         },
       },
-      orderBy: [{ status: "asc" }, { createdAt: "desc" }],
+      orderBy: { createdAt: "desc" },
     }),
   ]);
 
@@ -222,6 +166,21 @@ export default async function ProfilePage() {
   const blockedFriends = normalizedFriends.filter(
     (relationship) => relationship.status === "BLOCKED",
   );
+  const socialVisibilityProps = {
+    initialShowFriends: user.showFriendsOnProfile,
+    initialShowFriendGroups: user.showFriendGroupsOnProfile,
+    friends: acceptedFriends.map((relationship) => ({
+      id: relationship.friend.id,
+      username: relationship.friend.username,
+      email: relationship.friend.email,
+    })),
+    friendGroups: friendGroups.map((group) => ({
+      id: group.id,
+      name: group.name,
+      memberCount: group.members.length,
+      members: group.members.map((member) => member.user.username),
+    })),
+  };
   // Keep client props small and already formatted. The interactive manager only
   // needs ids, display text, and action eligibility from the server snapshot.
   const friendManagerProps = {
@@ -260,73 +219,10 @@ export default async function ProfilePage() {
       meta: "Blocked",
     })),
   };
-
-  // ---------------------------------------------------------------------------
-  // Family Request Display Data
-  // ---------------------------------------------------------------------------
-  // Family-friend rows are visible through all families the user belongs to.
-  // This set lets us determine which pending requests are incoming to the user.
-  const familyIds = new Set(
-    user.familyMembers.map((membership) => membership.family.id),
-  );
-  const incomingFamilyFriendRequests = familyFriendRelationships.filter(
-    (relationship) =>
-      relationship.status === "PENDING" &&
-      familyIds.has(relationship.addresseeFamilyId),
-  );
-  const ownedFamilies = user.familyMembers
-    .filter((membership) => membership.memberRole === "OWNER")
-    .map((membership) => ({
-      id: membership.family.id,
-      name: membership.family.name,
-    }));
-  // Family join requests are normalized separately from family friends because
-  // they create user membership, not a relationship between two families.
-  const normalizedFamilyJoinRequests = familyJoinRequests.map((request) => {
-    const direction: "RECEIVED" | "SENT" =
-      request.addresseeId === user.id ? "RECEIVED" : "SENT";
-    const title =
-      direction === "RECEIVED"
-        ? `Invited by ${request.requester.username}`
-        : `Invite to ${request.addressee.username}`;
-
-    return {
-      id: request.id,
-      status: request.status,
-      direction,
-      familyName: request.family.name,
-      title,
-      subtitle:
-        direction === "RECEIVED"
-          ? request.requester.email
-          : request.addressee.email,
-      meta: `Requested ${formatDate(request.createdAt)}`,
-    };
-  });
-  const incomingFamilyJoinRequests = normalizedFamilyJoinRequests.filter(
-    (request) =>
-      request.status === "PENDING" && request.direction === "RECEIVED",
-  );
-  const outgoingFamilyJoinRequests = normalizedFamilyJoinRequests.filter(
-    (request) => request.status === "PENDING" && request.direction === "SENT",
-  );
-  const completedFamilyJoinRequests = normalizedFamilyJoinRequests.filter(
-    (request) => request.status !== "PENDING",
-  );
-  const notificationCount =
-    incomingFriendRequests.length +
-    incomingFamilyFriendRequests.length +
-    incomingFamilyJoinRequests.length;
+  const notificationCount = incomingFriendRequests.length;
   const canUploadProfilePhoto = !user.oauthAccounts.some(
     (account) => account.provider === "GOOGLE",
   );
-  const familyManagerProps = user.familyMembers.map((membership) => ({
-    id: membership.family.id,
-    name: membership.family.name,
-    memberRole: membership.memberRole,
-    joinedAtLabel: formatDate(membership.joinedAt),
-  }));
-  const canCreateFamily = ownedFamilies.length === 0;
 
   return (
     <main className="mx-auto w-full max-w-3xl px-4 py-8">
@@ -348,7 +244,7 @@ export default async function ProfilePage() {
             </div>
           </div>
           <p className="mt-2 text-sm text-muted-text">
-            Manage account details, family membership, friends, and connected
+            Manage account details, social visibility, friends, and connected
             banks.
           </p>
         </div>
@@ -362,14 +258,13 @@ export default async function ProfilePage() {
             </span>
           </div>
           <p className="mt-1 text-xs text-muted-text">
-            Incoming friend and family requests
+            Incoming friend requests
           </p>
         </div>
       </section>
 
       {/* Quick stats for the main profile areas. */}
-      <section className="grid gap-4 sm:grid-cols-4">
-        <SummaryTile label="Families" value={user.familyMembers.length} />
+      <section className="grid gap-4 sm:grid-cols-3">
         <SummaryTile label="Friends" value={acceptedFriends.length} />
         <SummaryTile label="Requests" value={notificationCount} />
         <SummaryTile label="Banks" value={user.plaidItems.length} />
@@ -400,78 +295,11 @@ export default async function ProfilePage() {
           </dl>
         </div>
 
-        {/* Current family memberships plus owner-only family CRUD. */}
-        <FamilyManager
-          families={familyManagerProps}
-          canCreateFamily={canCreateFamily}
-        />
-
-        <FamilyRequestManager
-          ownedFamilies={ownedFamilies}
-          incomingRequests={incomingFamilyJoinRequests}
-          outgoingRequests={outgoingFamilyJoinRequests}
-          completedRequests={completedFamilyJoinRequests}
-        />
-
         {/* User-to-user friend requests and accepted friends. */}
         <FriendRequestManager {...friendManagerProps} />
 
-        {/* Family-to-family relationships for future shared household features. */}
-        <div className="rounded-xl border border-border bg-surface-bg p-5">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div>
-              <h2 className="text-lg font-semibold text-primary-text">
-                Family friends
-              </h2>
-              <p className="mt-1 text-sm text-muted-text">
-                Family-to-family relationships for shared household workflows.
-              </p>
-            </div>
-            <span className="rounded-xl border border-border px-3 py-1 text-xs font-semibold text-muted-text">
-              {familyFriendRelationships.length} total
-            </span>
-          </div>
-
-          <div className="mt-4 divide-y divide-border">
-            {familyFriendRelationships.length === 0 ? (
-              <div className="rounded-xl border border-border bg-raised-bg px-4 py-3 text-sm text-muted-text">
-                No family friend relationships yet.
-              </div>
-            ) : (
-              familyFriendRelationships.map((relationship) => {
-                const currentFamilyIsRequester = familyIds.has(
-                  relationship.requesterFamilyId,
-                );
-                const currentFamily = currentFamilyIsRequester
-                  ? relationship.requesterFamily
-                  : relationship.addresseeFamily;
-                const otherFamily = currentFamilyIsRequester
-                  ? relationship.addresseeFamily
-                  : relationship.requesterFamily;
-                const direction = currentFamilyIsRequester ? "Sent" : "Received";
-
-                return (
-                  <div
-                    key={relationship.id}
-                    className="flex items-center justify-between gap-4 py-3 first:pt-0 last:pb-0"
-                  >
-                    <div>
-                      <div className="font-semibold text-primary-text">
-                        {currentFamily.name} - {otherFamily.name}
-                      </div>
-                      <div className="mt-1 text-sm text-muted-text">
-                        {direction} {formatDate(relationship.createdAt)}
-                      </div>
-                    </div>
-                    <span className="rounded-xl border border-border px-3 py-1 text-xs font-semibold text-muted-text">
-                      {relationship.status}
-                    </span>
-                  </div>
-                );
-              })
-            )}
-          </div>
-        </div>
+        {/* Personal social visibility stays on profile; family management lives on /family. */}
+        <SocialVisibilityPanel {...socialVisibilityProps} />
 
         {/* Bank connection status and connected Plaid accounts. */}
         <div className="rounded-xl border border-border bg-surface-bg p-5">
