@@ -10,6 +10,8 @@ import {
 const UpdateSocialVisibilitySchema = z.object({
   showFriendsOnProfile: z.boolean().optional(),
   showFriendGroupsOnProfile: z.boolean().optional(),
+  showFamiliesOnProfile: z.boolean().optional(),
+  showFamilyFriendsOnProfile: z.boolean().optional(),
 });
 
 // Profile setting route: read the current user's saved social visibility.

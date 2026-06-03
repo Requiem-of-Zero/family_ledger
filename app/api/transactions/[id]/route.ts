@@ -146,7 +146,7 @@ export async function DELETE(
     if (error instanceof HttpError) {
       return NextResponse.json(
         {
-          message: error.message,
+          error: error.message,
           details: error.details,
         },
         { status: error.status },
