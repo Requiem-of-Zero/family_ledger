@@ -26,6 +26,28 @@ export const TransactionShareSchema = z.object({
   familyId: z.number().int().positive().nullable().optional(),
   friendGroupId: z.number().int().positive().nullable().optional(),
   userId: z.number().int().positive().nullable().optional(),
+  user: z
+    .object({
+      id: z.number().int().positive(),
+      username: z.string(),
+      email: z.string().optional(),
+    })
+    .nullable()
+    .optional(),
+  family: z
+    .object({
+      id: z.number().int().positive(),
+      name: z.string(),
+    })
+    .nullable()
+    .optional(),
+  friendGroup: z
+    .object({
+      id: z.number().int().positive(),
+      name: z.string(),
+    })
+    .nullable()
+    .optional(),
 });
 
 export const TransactionIdSchema = z.coerce
@@ -36,6 +58,7 @@ export const TransactionIdSchema = z.coerce
 export const TransactionSchema = z.object({
   id: TransactionIdSchema,
   createdByUserId: z.number().int().positive(),
+  canModify: z.boolean().optional(),
   type: TransactionTypeSchema,
   amountCents: z.number().int().positive(),
   occurredAt: z.coerce.date(),
@@ -47,6 +70,27 @@ export const TransactionSchema = z.object({
   sharedUserIds: z.array(z.coerce.number().int().positive()).optional(),
   shares: z.array(TransactionShareSchema).default([]),
   sharingProfile: z
+    .object({
+      id: z.number().int().positive(),
+      name: z.string(),
+    })
+    .nullable()
+    .optional(),
+  createdBy: z
+    .object({
+      id: z.number().int().positive(),
+      username: z.string(),
+      email: z.string().optional(),
+    })
+    .optional(),
+  family: z
+    .object({
+      id: z.number().int().positive(),
+      name: z.string(),
+    })
+    .nullable()
+    .optional(),
+  friendGroup: z
     .object({
       id: z.number().int().positive(),
       name: z.string(),

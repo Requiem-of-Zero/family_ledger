@@ -4,6 +4,8 @@ import { HttpError } from "@/src/server/services/auth.service";
 export type SocialVisibilityInput = {
   showFriendsOnProfile?: boolean;
   showFriendGroupsOnProfile?: boolean;
+  showFamiliesOnProfile?: boolean;
+  showFamilyFriendsOnProfile?: boolean;
 };
 
 export async function getSocialVisibilitySettings(userId: number) {
@@ -12,6 +14,8 @@ export async function getSocialVisibilitySettings(userId: number) {
     select: {
       showFriendsOnProfile: true,
       showFriendGroupsOnProfile: true,
+      showFamiliesOnProfile: true,
+      showFamilyFriendsOnProfile: true,
     },
   });
 
@@ -38,6 +42,14 @@ export async function updateSocialVisibilitySettings(
     data.showFriendGroupsOnProfile = input.showFriendGroupsOnProfile;
   }
 
+  if (typeof input.showFamiliesOnProfile === "boolean") {
+    data.showFamiliesOnProfile = input.showFamiliesOnProfile;
+  }
+
+  if (typeof input.showFamilyFriendsOnProfile === "boolean") {
+    data.showFamilyFriendsOnProfile = input.showFamilyFriendsOnProfile;
+  }
+
   if (Object.keys(data).length === 0) {
     throw new HttpError("No visibility settings provided", 400);
   }
@@ -48,6 +60,8 @@ export async function updateSocialVisibilitySettings(
     select: {
       showFriendsOnProfile: true,
       showFriendGroupsOnProfile: true,
+      showFamiliesOnProfile: true,
+      showFamilyFriendsOnProfile: true,
     },
   });
 }

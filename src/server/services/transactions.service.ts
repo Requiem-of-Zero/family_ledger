@@ -62,6 +62,67 @@ async function ensureCategoryBelongsToFamily(
   }
 }
 
+const TransactionSharingDisplayInclude = {
+  createdBy: {
+    select: {
+      id: true,
+      username: true,
+      email: true,
+    },
+  },
+  family: {
+    select: {
+      id: true,
+      name: true,
+    },
+  },
+  friendGroup: {
+    select: {
+      id: true,
+      name: true,
+    },
+  },
+  shares: {
+    include: {
+      user: {
+        select: {
+          id: true,
+          username: true,
+          email: true,
+        },
+      },
+      family: {
+        select: {
+          id: true,
+          name: true,
+        },
+      },
+      friendGroup: {
+        select: {
+          id: true,
+          name: true,
+        },
+      },
+    },
+  },
+  sharingProfile: {
+    select: {
+      id: true,
+      name: true,
+    },
+  },
+} as const;
+
+function attachTransactionPermissions<T extends { createdByUserId: number }>(
+  userId: number,
+  transaction: T,
+) {
+  return {
+    ...transaction,
+    canModify: transaction.createdByUserId === userId,
+  };
+}
+
 export async function getDefaultFamilyIdForUser(userId: number) {
   // New users are created as OWNER of their first family. Prefer that family,
   // then fall back to any active family membership if the app grows later.
@@ -180,7 +241,7 @@ export async function listTransactionsForUser(
 
   // A user can see their own transactions, older direct family/group shares, and
   // the newer generic TransactionShare rows for users, families, or friend groups.
-  return prisma.transaction.findMany({
+  const transactions = await prisma.transaction.findMany({
     where: {
       type: query.type,
       deletedAt: null,
@@ -213,13 +274,7 @@ export async function listTransactionsForUser(
         : {}),
     },
     include: {
-      shares: true,
-      sharingProfile: {
-        select: {
-          id: true,
-          name: true,
-        },
-      },
+      ...TransactionSharingDisplayInclude,
       plaidAccount: {
         select: {
           id: true,
@@ -238,6 +293,10 @@ export async function listTransactionsForUser(
     },
     orderBy: { occurredAt: "desc" },
   });
+
+  return transactions.map((transaction) =>
+    attachTransactionPermissions(userId, transaction),
+  );
 }
 
 export async function getTransactionForUserById(
@@ -299,15 +358,11 @@ export async function getTransactionForUserById(
       ],
     },
     include: {
-      shares: true,
-      sharingProfile: {
-        select: {
-          id: true,
-          name: true,
-        },
-      },
+      ...TransactionSharingDisplayInclude,
     },
-  });
+  }).then((transaction) =>
+    transaction ? attachTransactionPermissions(userId, transaction) : null,
+  );
 }
 
 // -----------------------------------------------------------------------------
@@ -506,15 +561,9 @@ export async function updateTransactionForUserById(
           : {}),
       },
       include: {
-        shares: true,
-        sharingProfile: {
-          select: {
-            id: true,
-            name: true,
-          },
-        },
+        ...TransactionSharingDisplayInclude,
       },
-    });
+    }).then((transaction) => attachTransactionPermissions(userId, transaction));
   });
 }
 
@@ -522,7 +571,7 @@ export async function softDeleteTransactionForUserById(
   userId: number,
   transactionId: TransactionId,
 ) {
-  const existing = prisma.transaction.findFirst({
+  const existing = await prisma.transaction.findFirst({
     where: {
       id: transactionId,
       createdByUserId: userId,
