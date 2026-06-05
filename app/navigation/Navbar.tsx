@@ -360,20 +360,24 @@ export default function NavBar() {
                     <div>{notificationCounts.friends} friend requests</div>
                     <div>{notificationCounts.families} family requests</div>
                   </div>
-                  <Link
-                    href="/friends#requests"
-                    onClick={() => setIsNotificationMenuOpen(false)}
-                    className="mt-3 block rounded-lg border border-border bg-raised-bg px-3 py-2 text-xs font-semibold text-primary-text hover:border-border-hover"
-                  >
-                    Open friend requests
-                  </Link>
-                  <Link
-                    href="/family"
-                    onClick={() => setIsNotificationMenuOpen(false)}
-                    className="mt-2 block rounded-lg border border-border bg-raised-bg px-3 py-2 text-xs font-semibold text-primary-text hover:border-border-hover"
-                  >
-                    Open family dashboard
-                  </Link>
+                  {notificationCounts.friends > 0 && (
+                    <Link
+                      href="/friends#requests"
+                      onClick={() => setIsNotificationMenuOpen(false)}
+                      className="mt-3 block rounded-lg border border-border bg-raised-bg px-3 py-2 text-xs font-semibold text-primary-text hover:border-border-hover"
+                    >
+                      Open friend requests
+                    </Link>
+                  )}
+                  {notificationCounts.families > 0 && (
+                    <Link
+                      href="/family"
+                      onClick={() => setIsNotificationMenuOpen(false)}
+                      className="mt-2 block rounded-lg border border-border bg-raised-bg px-3 py-2 text-xs font-semibold text-primary-text hover:border-border-hover"
+                    >
+                      Open family requests
+                    </Link>
+                  )}
                 </div>
               </div>
             </div>

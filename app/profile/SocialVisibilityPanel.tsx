@@ -1,43 +1,66 @@
 "use client";
 
+import Link from "next/link";
 import { useState, useTransition } from "react";
 
 type SocialVisibilityPanelProps = {
   friendCount: number;
   friendGroupCount: number;
+  familyCount: number;
+  familyFriendCount: number;
   initialShowFriends: boolean;
   initialShowFriendGroups: boolean;
+  initialShowFamilies: boolean;
+  initialShowFamilyFriends: boolean;
 };
 
 export default function SocialVisibilityPanel({
   friendCount,
   friendGroupCount,
+  familyCount,
+  familyFriendCount,
   initialShowFriends,
   initialShowFriendGroups,
+  initialShowFamilies,
+  initialShowFamilyFriends,
 }: SocialVisibilityPanelProps) {
   const [showFriends, setShowFriends] = useState(initialShowFriends);
   const [showFriendGroups, setShowFriendGroups] = useState(
     initialShowFriendGroups,
   );
+  const [showFamilies, setShowFamilies] = useState(initialShowFamilies);
+  const [showFamilyFriends, setShowFamilyFriends] = useState(
+    initialShowFamilyFriends,
+  );
   const [message, setMessage] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
 
-  function updateVisibility(setting: "friends" | "friendGroups", value: boolean) {
+  type VisibilitySetting =
+    | "friends"
+    | "friendGroups"
+    | "families"
+    | "familyFriends";
+
+  function updateVisibility(setting: VisibilitySetting, value: boolean) {
     // Optimistically reflect the user's choice, then persist the matching DB
     // field. If the request fails, roll back the specific switch.
-    const body =
-      setting === "friends"
-        ? { showFriendsOnProfile: value }
-        : { showFriendGroupsOnProfile: value };
-    const rollback =
-      setting === "friends"
-        ? () => setShowFriends(!value)
-        : () => setShowFriendGroups(!value);
+    const bodyBySetting = {
+      friends: { showFriendsOnProfile: value },
+      friendGroups: { showFriendGroupsOnProfile: value },
+      families: { showFamiliesOnProfile: value },
+      familyFriends: { showFamilyFriendsOnProfile: value },
+    };
+    const setters = {
+      friends: setShowFriends,
+      friendGroups: setShowFriendGroups,
+      families: setShowFamilies,
+      familyFriends: setShowFamilyFriends,
+    };
 
-    if (setting === "friends") {
-      setShowFriends(value);
-    } else {
-      setShowFriendGroups(value);
+    setters[setting](value);
+
+    function rollback() {
+      setters[setting](!value);
     }
 
     setMessage(null);
@@ -46,7 +69,7 @@ export default function SocialVisibilityPanel({
         method: "PATCH",
         credentials: "include",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify(body),
+        body: JSON.stringify(bodyBySetting[setting]),
       });
 
       if (!res.ok) {
@@ -91,6 +114,20 @@ export default function SocialVisibilityPanel({
           label="Friend groups"
           onClick={() => updateVisibility("friendGroups", !showFriendGroups)}
         />
+        <VisibilityToggle
+          disabled={isPending}
+          enabled={showFamilies}
+          label="Families"
+          onClick={() => updateVisibility("families", !showFamilies)}
+        />
+        <VisibilityToggle
+          disabled={isPending}
+          enabled={showFamilyFriends}
+          label="Family friends"
+          onClick={() =>
+            updateVisibility("familyFriends", !showFamilyFriends)
+          }
+        />
       </div>
 
       {message && <p className="mt-3 text-xs text-muted-text">{message}</p>}
@@ -99,12 +136,26 @@ export default function SocialVisibilityPanel({
         <VisibilitySummary
           enabled={showFriends}
           label="Friends"
+          href="/friends"
           value={friendCount}
         />
         <VisibilitySummary
           enabled={showFriendGroups}
           label="Friend groups"
+          href="/friends"
           value={friendGroupCount}
+        />
+        <VisibilitySummary
+          enabled={showFamilies}
+          label="Families"
+          href="/family"
+          value={familyCount}
+        />
+        <VisibilitySummary
+          enabled={showFamilyFriends}
+          label="Family friends"
+          href="/family"
+          value={familyFriendCount}
         />
       </div>
     </section>
@@ -142,10 +193,12 @@ function VisibilityToggle({
 
 function VisibilitySummary({
   enabled,
+  href,
   label,
   value,
 }: {
   enabled: boolean;
+  href: string;
   label: string;
   value: number;
 }) {
@@ -153,7 +206,12 @@ function VisibilitySummary({
     <div className="rounded-xl border border-border bg-raised-bg px-3 py-3">
       <div className="flex items-center justify-between gap-3">
         <div>
-          <div className="text-sm font-semibold text-primary-text">{label}</div>
+          <Link
+            href={href}
+            className="text-sm font-semibold text-primary-text hover:text-primary"
+          >
+            {label}
+          </Link>
           <div className="mt-1 text-xs text-muted-text">
             {enabled ? "Visible on profile" : "Hidden on profile"}
           </div>

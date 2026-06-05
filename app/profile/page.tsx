@@ -39,6 +39,8 @@ export default async function ProfilePage() {
       isActive: true,
       showFriendsOnProfile: true,
       showFriendGroupsOnProfile: true,
+      showFamiliesOnProfile: true,
+      showFamilyFriendsOnProfile: true,
       lastLogin: true,
       createdAt: true,
       plaidItems: {
@@ -75,7 +77,8 @@ export default async function ProfilePage() {
   // ---------------------------------------------------------------------------
   // Social data is fetched separately from the account query so the profile page
   // can keep account/banking fields narrow while still showing relationship data.
-  const [friendRelationships, friendGroups] = await Promise.all([
+  const [friendRelationships, friendGroups, familyMemberships, familyFriends] =
+    await Promise.all([
     prisma.userFriend.findMany({
       where: {
         OR: [{ requesterId: user.id }, { addresseeId: user.id }],
@@ -106,6 +109,24 @@ export default async function ProfilePage() {
         },
       },
       orderBy: { createdAt: "desc" },
+    }),
+    prisma.familyMember.findMany({
+      where: {
+        userId: user.id,
+        isActive: true,
+        family: { deletedAt: null },
+      },
+      select: { familyId: true },
+    }),
+    prisma.familyFriend.findMany({
+      where: {
+        status: "ACCEPTED",
+        OR: [
+          { requesterFamily: { members: { some: { userId: user.id, isActive: true } } } },
+          { addresseeFamily: { members: { some: { userId: user.id, isActive: true } } } },
+        ],
+      },
+      select: { id: true },
     }),
   ]);
 
@@ -161,8 +182,12 @@ export default async function ProfilePage() {
   const socialVisibilityProps = {
     initialShowFriends: user.showFriendsOnProfile,
     initialShowFriendGroups: user.showFriendGroupsOnProfile,
+    initialShowFamilies: user.showFamiliesOnProfile,
+    initialShowFamilyFriends: user.showFamilyFriendsOnProfile,
     friendCount: acceptedFriends.length,
     friendGroupCount: friendGroups.length,
+    familyCount: familyMemberships.length,
+    familyFriendCount: familyFriends.length,
   };
   const notificationCount = incomingFriendRequests.length;
   const canUploadProfilePhoto = !user.oauthAccounts.some(
