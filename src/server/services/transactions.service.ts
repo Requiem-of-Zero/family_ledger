@@ -193,8 +193,12 @@ export async function createTransactionForUser(
             }
           : undefined,
     },
+    include: {
+      ...TransactionSharingDisplayInclude,
+    },
   });
-  return transaction;
+
+  return attachTransactionPermissions(userId, transaction);
 }
 
 export async function listTransactionsForUser(
