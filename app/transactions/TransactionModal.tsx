@@ -461,7 +461,7 @@ export default function TransactionModal({
                   : "Create"}
             </button>
 
-            {transaction && (
+            {transaction && transaction.canModify !== false && (
               <button
                 type="button"
                 disabled={isSubmitting}

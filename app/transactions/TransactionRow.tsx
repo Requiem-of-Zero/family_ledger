@@ -24,6 +24,8 @@ export default function TransactionRow({
     ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-300"
     : "border-red-500/40 bg-red-500/10 text-red-300";
   const amountPrefix = isIncome ? "+" : "-";
+  const shareLabels = getShareLabels(tx);
+  const canModify = tx.canModify !== false;
 
   return (
     <div
@@ -66,6 +68,19 @@ export default function TransactionRow({
             {tx.plaidAccount.mask ? ` •••• ${tx.plaidAccount.mask}` : ""}
           </div>
         )}
+
+        {shareLabels.length > 0 && (
+          <div className="mt-2 flex flex-wrap gap-1.5 text-xs">
+            {shareLabels.map((label) => (
+              <span
+                key={label}
+                className="rounded-lg border border-primary/40 bg-primary/10 px-2 py-0.5 text-primary-text"
+              >
+                {label}
+              </span>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* Right side: amount + actions */}
@@ -76,7 +91,7 @@ export default function TransactionRow({
         </div>
 
         <div className="mt-2 flex justify-end gap-2">
-          {onEdit && (
+          {canModify && onEdit && (
             <button
               type="button"
               onClick={() => onEdit(tx)}
@@ -86,7 +101,7 @@ export default function TransactionRow({
             </button>
           )}
 
-          {onDelete && (
+          {canModify && onDelete && (
             <button
               type="button"
               onClick={() => onDelete(tx.id)}
@@ -109,4 +124,22 @@ export default function TransactionRow({
       </div>
     </div>
   );
+}
+
+function getShareLabels(tx: Transaction) {
+  const labels = new Set<string>();
+  const isShared = tx.visibility !== "PERSONAL" || (tx.shares?.length ?? 0) > 0;
+
+  if (isShared && tx.createdBy) labels.add(`User: ${tx.createdBy.username}`);
+
+  if (tx.family) labels.add(`Family: ${tx.family.name}`);
+  if (tx.friendGroup) labels.add(`Friend group: ${tx.friendGroup.name}`);
+
+  for (const share of tx.shares ?? []) {
+    if (share.user) labels.add(`Shared with ${share.user.username}`);
+    if (share.family) labels.add(`Family: ${share.family.name}`);
+    if (share.friendGroup) labels.add(`Friend group: ${share.friendGroup.name}`);
+  }
+
+  return Array.from(labels);
 }

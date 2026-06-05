@@ -19,7 +19,7 @@
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import type { Transaction } from "@/src/shared/validators/transactions";
-import { formatMoney, formatDate } from "@/src/shared/utils/format";
+import { formatMoney } from "@/src/shared/utils/format";
 import TransactionModal from "../TransactionModal";
 
 /**
@@ -59,6 +59,7 @@ export default function TransactionDetailClient({ transaction }: Props) {
    * Prevents multiple delete requests and shows loading state
    */
   const [isDeleting, setIsDeleting] = useState(false);
+  const canModify = transaction.canModify !== false;
 
   // ==================== EVENT HANDLERS ====================
 
@@ -236,28 +237,32 @@ export default function TransactionDetailClient({ transaction }: Props) {
             </div>
           </div>
 
-          {/* Action Buttons Section - Edit and Delete */}
-          <div className="flex gap-3 pt-4 border-t border-border">
-            {/* Edit Button - Opens the edit modal */}
-            <button
-              type="button"
-              onClick={() => setIsEditModalOpen(true)} // Open modal in edit mode
-              className="flex-1 rounded-xl bg-primary px-4 py-3 text-sm font-semibold text-primary-fg hover:opacity-90"
-            >
-              Edit Transaction
-            </button>
+          {canModify ? (
+            /* Owner-only actions. Shared recipients can inspect, but not mutate. */
+            <div className="flex gap-3 pt-4 border-t border-border">
+              <button
+                type="button"
+                onClick={() => setIsEditModalOpen(true)}
+                className="flex-1 rounded-xl bg-primary px-4 py-3 text-sm font-semibold text-primary-fg hover:opacity-90"
+              >
+                Edit Transaction
+              </button>
 
-            {/* Delete Button - Deletes the transaction with confirmation */}
-            <button
-              type="button"
-              onClick={handleDelete} // Calls the delete handler
-              disabled={isDeleting} // Disable while deleting to prevent double-clicks
-              className="flex-1 rounded-xl border border-danger bg-danger-bg px-4 py-3 text-sm font-semibold text-danger-text hover:opacity-90 disabled:opacity-50"
-            >
-              {/* Show loading text while deleting */}
-              {isDeleting ? "Deleting..." : "Delete Transaction"}
-            </button>
-          </div>
+              <button
+                type="button"
+                onClick={handleDelete}
+                disabled={isDeleting}
+                className="flex-1 rounded-xl border border-danger bg-danger-bg px-4 py-3 text-sm font-semibold text-danger-text hover:opacity-90 disabled:opacity-50"
+              >
+                {isDeleting ? "Deleting..." : "Delete Transaction"}
+              </button>
+            </div>
+          ) : (
+            <div className="rounded-xl border border-border bg-raised-bg px-4 py-3 text-sm text-muted-text">
+              This transaction was shared with you, so only the creator can edit
+              or delete it.
+            </div>
+          )}
         </div>
       </div>
 
