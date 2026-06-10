@@ -129,6 +129,9 @@ export default function TransactionsChart({
 }: Props) {
   const [isMounted, setIsMounted] = useState(false);
   const [activeCompareKey, setActiveCompareKey] = useState<string | null>(null);
+  const [isCompareLegendOpen, setIsCompareLegendOpen] = useState(false);
+  const [isComparePreviewExpanded, setIsComparePreviewExpanded] =
+    useState(false);
   const [hiddenCompareKeys, setHiddenCompareKeys] = useState<Set<string>>(
     () => new Set(),
   );
@@ -367,6 +370,20 @@ export default function TransactionsChart({
     });
   }
 
+  function showAllCompareLines() {
+    setHiddenCompareKeys(new Set());
+  }
+
+  function hideAllCompareLines() {
+    setHiddenCompareKeys(
+      new Set(
+        compareLegendItems
+          .filter((item) => item.key !== "myNet")
+          .map((item) => item.key),
+      ),
+    );
+  }
+
   // Recharts generates SVG attributes during render. Waiting until mount keeps
   // the server HTML and the browser's first render identical.
   if (!isMounted) {
@@ -415,8 +432,16 @@ export default function TransactionsChart({
       {mode === "compare" && (
         <CompareLegend
           hiddenKeys={hiddenCompareKeys}
+          isOpen={isCompareLegendOpen}
+          isPreviewExpanded={isComparePreviewExpanded}
           items={compareLegendItems}
+          onHideAll={hideAllCompareLines}
+          onShowAll={showAllCompareLines}
           onToggle={toggleCompareLine}
+          onToggleOpen={() => setIsCompareLegendOpen((isOpen) => !isOpen)}
+          onTogglePreviewExpanded={() =>
+            setIsComparePreviewExpanded((isExpanded) => !isExpanded)
+          }
         />
       )}
 
@@ -572,41 +597,134 @@ export default function TransactionsChart({
 
 function CompareLegend({
   hiddenKeys,
+  isOpen,
+  isPreviewExpanded,
   items,
+  onHideAll,
+  onShowAll,
   onToggle,
+  onToggleOpen,
+  onTogglePreviewExpanded,
 }: {
   hiddenKeys: Set<string>;
+  isOpen: boolean;
+  isPreviewExpanded: boolean;
   items: CompareLegendItem[];
+  onHideAll: () => void;
+  onShowAll: () => void;
+  onToggle: (key: string) => void;
+  onToggleOpen: () => void;
+  onTogglePreviewExpanded: () => void;
+}) {
+  const visibleCount = items.filter((item) => !hiddenKeys.has(item.key)).length;
+  const previewLimit = 6;
+  const previewItems = isPreviewExpanded ? items : items.slice(0, previewLimit);
+  const overflowCount = Math.max(0, items.length - previewLimit);
+
+  return (
+    <div className="mb-3 rounded-xl border border-border bg-raised-bg p-2 text-xs">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <button
+          type="button"
+          onClick={onToggleOpen}
+          className="inline-flex items-center gap-2 rounded-lg border border-border bg-surface-bg px-3 py-2 font-semibold text-primary-text hover:border-border-hover"
+        >
+          Lines
+          <span className="rounded-full bg-primary px-2 py-0.5 text-[10px] text-primary-fg">
+            {visibleCount}/{items.length}
+          </span>
+        </button>
+
+        {!isOpen && (
+          <div className="scrollbar-thin flex min-w-0 flex-1 items-center gap-1 overflow-x-auto overflow-y-hidden py-0.5">
+            {previewItems.map((item) => (
+              <LegendToggleChip
+                key={item.key}
+                item={item}
+                isHidden={hiddenKeys.has(item.key)}
+                onToggle={onToggle}
+              />
+            ))}
+            {overflowCount > 0 && (
+              <button
+                type="button"
+                onClick={onTogglePreviewExpanded}
+                className="shrink-0 rounded-full border border-border bg-surface-bg px-2 py-1 font-semibold text-muted-text hover:border-border-hover hover:text-primary-text"
+              >
+                {isPreviewExpanded ? "Show less" : `+${overflowCount} more`}
+              </button>
+            )}
+          </div>
+        )}
+
+        {isOpen && (
+          <div className="flex gap-1">
+            <button
+              type="button"
+              onClick={onShowAll}
+              className="rounded-lg px-2 py-1 font-semibold text-muted-text hover:bg-surface-bg hover:text-primary-text"
+            >
+              Show all
+            </button>
+            <button
+              type="button"
+              onClick={onHideAll}
+              className="rounded-lg px-2 py-1 font-semibold text-muted-text hover:bg-surface-bg hover:text-primary-text"
+            >
+              Hide all
+            </button>
+          </div>
+        )}
+      </div>
+
+      {isOpen && (
+        <div className="mt-2 grid max-h-40 grid-cols-1 gap-1 overflow-y-auto overflow-x-hidden pr-1 sm:grid-cols-2">
+          {items.map((item) => {
+            const isHidden = hiddenKeys.has(item.key);
+
+            return (
+              <LegendToggleChip
+                key={item.key}
+                item={item}
+                isHidden={isHidden}
+                onToggle={onToggle}
+              />
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function LegendToggleChip({
+  isHidden,
+  item,
+  onToggle,
+}: {
+  isHidden: boolean;
+  item: CompareLegendItem;
   onToggle: (key: string) => void;
 }) {
   return (
-    <div className="mb-3 flex flex-wrap gap-2 text-xs">
-      {items.map((item) => {
-        const isHidden = hiddenKeys.has(item.key);
-
-        return (
-          <button
-            key={item.key}
-            type="button"
-            onClick={() => onToggle(item.key)}
-            className={[
-              "inline-flex max-w-full items-center gap-1.5 rounded-lg border px-2 py-1 font-semibold transition",
-              isHidden
-                ? "border-border bg-raised-bg text-muted-text opacity-50"
-                : "border-border bg-raised-bg text-primary-text hover:border-border-hover",
-            ].join(" ")}
-            title={isHidden ? "Show line" : "Hide line"}
-          >
-            <span
-              aria-hidden="true"
-              className="h-2.5 w-2.5 shrink-0 rounded-full"
-              style={{ backgroundColor: item.color }}
-            />
-            <span className="truncate">{item.label}</span>
-          </button>
-        );
-      })}
-    </div>
+    <button
+      type="button"
+      onClick={() => onToggle(item.key)}
+      className={[
+        "inline-flex min-w-0 shrink-0 items-center gap-1.5 rounded-lg border px-2 py-1.5 font-semibold transition",
+        isHidden
+          ? "border-border bg-surface-bg text-muted-text opacity-50"
+          : "border-primary/60 bg-surface-bg text-primary-text hover:border-primary",
+      ].join(" ")}
+      title={isHidden ? "Show line" : "Hide line"}
+    >
+      <span
+        aria-hidden="true"
+        className="h-2.5 w-2.5 shrink-0 rounded-full"
+        style={{ backgroundColor: item.color }}
+      />
+      <span className="max-w-[140px] truncate">{item.label}</span>
+    </button>
   );
 }
 

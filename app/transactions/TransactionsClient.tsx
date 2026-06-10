@@ -61,6 +61,16 @@ const COMPARE_SERIES_COLORS = [
   "#22d3ee",
   "#c084fc",
   "#f59e0b",
+  "#60a5fa",
+  "#34d399",
+  "#f43f5e",
+  "#d946ef",
+  "#2dd4bf",
+  "#fde047",
+  "#818cf8",
+  "#fb923c",
+  "#4ade80",
+  "#e879f9",
 ] as const;
 
 type GroupingColorKey = keyof typeof DEFAULT_GROUPING_COLORS;
@@ -1021,15 +1031,12 @@ export default function TransactionsClient() {
     [],
   );
 
-  // Build one chart series per selected source for compare mode. Limiting to six
-  // keeps the chart readable on mobile while still supporting quick comparisons.
+  // Build one chart series per selected source for compare mode. Default "all
+  // sources" still means every source should be comparable, not an empty chart.
   const compareSourceSeries = useMemo(() => {
-    if (isDefaultAllSources) return [];
-
     return selectedSourceIds
       .map((sourceId) => sourceOptionByValue.get(sourceId))
       .filter((option): option is SourceOption => Boolean(option))
-      .slice(0, 6)
       .map((option, index) => ({
         id: option.value,
         label: option.label,
@@ -1042,7 +1049,6 @@ export default function TransactionsClient() {
     filtered,
     getTransactionSourceIds,
     getCompareSourceColor,
-    isDefaultAllSources,
     selectedSourceIds,
     sourceOptionByValue,
   ]);
