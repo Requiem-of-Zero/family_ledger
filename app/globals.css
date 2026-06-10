@@ -86,6 +86,27 @@ body {
   color: var(--color-primary-text);
 }
 
+/* Interaction baseline: clickable controls should advertise clickability. */
+button,
+[role="button"],
+summary,
+a,
+label[for],
+select,a
+input[type="checkbox"],
+input[type="radio"],
+input[type="color"],
+input[type="file"] {
+  cursor: pointer;
+}
+
+button:disabled,
+select:disabled,
+input:disabled,
+[aria-disabled="true"] {
+  cursor: not-allowed;
+}
+
 /* Branded loading mark used by route transitions and loading fallbacks. */
 @keyframes family-ledger-loading-mark {
   0%,
